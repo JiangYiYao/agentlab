@@ -1,16 +1,14 @@
 ---
 name: agentlab
 description: >
-  规划并跑对照实验，优化已经存在的 Skill 或 agent 工作流里的某一项能力
-  （更快、更省 token、某类事实不漏、改完能不能用）。一起谈方案、落改法、
-  按关注点比改前改后。触发：优化 skill、测这个目录、对比改法、降 token、
-  做实验、能不能发、/agentlab。不要用于从零创建或脚手架一份新
-  SKILL.md（那是 create-skill / /create-skill）。
+  对已经存在的 Skill 或 agent 工作流目录做对照实验：一起商量怎么改，
+  再按你关心的标准比较改前和改后（快慢、花费、该有的结果有没有漏、改完还能不能用）。
+  评测 agent、对比改法时用。不要用于从零创建 SKILL.md。
 ---
 
 # AgentLab
 
-帮用户把「想改 Skill / agent 的哪一项能力」谈清楚，一起定实验方案，你来落改法、跑对照、按关注点讲这一刀有没有变好、能不能用。对象是已经存在的目录（Skill 或自己写的工作流），不是从零新建一个 skill。
+帮用户把「想改 Skill / agent 的哪一项能力」谈清楚，一起定实验方案，你来改、跑对照、按关注点讲改前改后有没有变好、改完还能不能用。对象是已经存在的目录（Skill 或自己写的工作流），不是从零新建一个 skill。
 
 分数只认 `run` 写下来的结果。不要让用户去翻 yaml 或自己敲命令。
 
@@ -40,21 +38,21 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 
 ## 对用户
 
-只问还缺的事实：测哪个目录、在乎什么、本机哪条已经能登录使用的命令、任务说明怎么喂给这条命令（默认从标准输入读；没点头不要猜 `claude`/`codex`）、夹具在哪、预算大概多少。
+只问还缺的事实：测哪个目录、打算改哪里、在乎什么、本机哪条已经能登录使用的命令、任务说明怎么喂给这条命令（默认从标准输入读；用户没确认不要猜 `claude`/`codex`）、夹具在哪、预算大概多少。
 
 **同一条回复里**写出本次实验计划（不要先问一轮、等回复、再另发计划）。计划必须写清：
 
-- 对照什么（baseline 对哪一刀改法）
+- 对照什么（现在的目录对这次改法）
 - 几个用例、每个重复几次（见下）
 - 是否并行、为什么
-- 看哪些关注点、怎样算能发
+- 看哪些关注点、怎样算过
 - 产物放哪
 
-没有用户点头（或回复里明确改计划）之前，不要 `run`。`brief` 可以在他确认后立刻做。
+没有用户确认（或回复里明确改计划）之前，不要 `run`。`brief` 可以在他确认后立刻做。
 
 改动会拷到这次试验自己的目录里再跑，不会装进他的全局 skills。确认标准时用几句话复述「看什么、怎样算过」。不要让他打开或编辑 yaml。
 
-讲结果时按「每条关注点在每个格子上过没过、能不能发」。不要甩文件清单当作业。
+讲结果时按「每条关注点在每个格子上过没过、改完还能不能用」。不要甩文件清单当作业。
 
 ## 规模与并行（计划里必须写明）
 
@@ -66,11 +64,17 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 
 ## 你自己做
 
-契约怎么写见 `references/contract.md`。先把源目录完整拷到 `variants/baseline/`，用户勾选的改法再做成 treatment 目录。
+契约字段见 `references/contract.md`。用户确认后，在实验目录里写齐这些再跑 `brief`：
+
+- `experiment.yaml`（按契约草稿，含其中的 repetitions / max_parallel / max_trials）
+- `criteria.md`（按关注点分节）
+- `cases/<id>/prompt.md`
+- `variants/baseline/`：源目录完整拷贝
+- `variants/<treatment-id>/`：再拷一份 baseline，只在副本上改，不要改用户的源目录
 
 新实验目录：源在某个 git 仓里 → `<仓根>/experiments/<id>/`；否则 → `<cwd>/experiments/<id>/`。已有同名且已是本实验则接着用；撞车则 `<id>-2`。
 
-用户确认后跑 `brief --confirm-criteria`。退出 0 再 `run --gate`（他说先不管能不能发就去掉 `--gate`）。跑完 `report`，读 `report.md` / `promotion.json`，按关注点讲。不要自己编分数。
+用户确认后跑 `brief --confirm-criteria`。退出 0 再 `run --gate`（他说这次只比较、先不判断能不能用，就去掉 `--gate`）。跑完 `report`，读 `report.md` / `promotion.json`，按关注点讲。不要自己编分数。
 
 `brief` 退出 2：读错误码，你改契约或再问缺的那一项，不要把栈甩给用户。`run --gate` 退出 1：按报告讲哪条门禁没过。退出 3：预算到了，实验没跑完。
 
@@ -78,7 +82,7 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 
 ## 禁止
 
-- `git worktree add`
+- 自己执行 `git worktree add`（要比工作区改动时在契约里写 `isolation.type: git-worktree`，由 runner 建沙盒）
 - 写用户全局 skill 目录（`~/.claude/skills` 等）
 - 为了打分去 exec 被测 command
 - 跳过 brief 宣称可跑

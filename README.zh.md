@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-对已经存在的 Skill 或工作流目录做对照：一起谈方案、改一刀、按你点名的标准比改前改后。不是从零写一份新的 SKILL.md（那是 create-skill）。
+对已经存在的 Skill 或工作流目录做对照：一起商量怎么改，再按你关心的标准比较改前和改后。不是从零写一份新的 SKILL.md。
 
 这是一个标准 skill：把 [`skills/agentlab/`](skills/agentlab/) 拷进你的 coding agent 即可。CLI 在 skill 里面（`scripts/cli.py`），对话里的 agent 会自己执行它。
 

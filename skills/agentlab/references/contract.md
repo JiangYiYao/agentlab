@@ -2,7 +2,7 @@
 
 `experiment.yaml` 必须能过 `brief`。不要写 `harness`、`skill_install`、`rubric`、`swap_order`、`slices`。
 
-`id` 用小写字母、数字、连字符，至少 2 个字符（例如 `cleanup-android`，不能是 `t`）。
+`id` 用小写字母、数字、连字符，至少 2 个字符（例如 `compare-change`，不能是 `t`）。
 
 恰好一个 `role: baseline`。treatment 最多 3 个；每个 treatment 都要有 `hypothesis`（`change` / `bet` / `hurt` / `falsify`）。baseline 不要写 hypothesis。
 
@@ -63,8 +63,8 @@ isolation:
   type: tempdir
   inherit_host_identity: true
 budget:
-  max_trials: 8
-  max_parallel: 1
+  max_trials: 24
+  max_parallel: 4
   wall_clock_s: 3600
   per_trial: { wall_clock_s: 600 }
   on_exceed: stop
@@ -73,7 +73,7 @@ promotion:
   all_cells_must_pass: true
 ```
 
-有噪声的对照（真 CLI、外搜、LLM 裁判）`repetitions` 默认 **3**。只有确定性假 command 才写成 `1`。`budget.max_parallel` 默认 2～4，不要无故写成 1。
+只有确定性假 command 才把 `repetitions` / `max_parallel` 写成 `1`。
 
 源目录在 git 仓里、要比工作区改动时，把 `isolation` 改成 `type: git-worktree`，并写 `repo`（夹具仓或源仓相对实验根的路径）和 `freeze: HEAD`。
 

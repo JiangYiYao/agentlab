@@ -44,6 +44,9 @@ def test_brief_init_from(tmp_path: Path) -> None:
     assert exp.isolation.type == "tempdir"
     assert exp.isolation.inherit_host_identity is True
     assert exp.criteria.sha256
+    assert exp.repetitions == 3
+    assert exp.budget.max_parallel == 4
+    assert exp.budget.max_trials == 24
 
 
 def test_run_dry_expand(tmp_path: Path) -> None:

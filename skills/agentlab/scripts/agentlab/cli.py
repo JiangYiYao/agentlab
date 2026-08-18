@@ -1,4 +1,4 @@
-"""agentlab CLI. PR1 implements `brief`; `run` / `report` print not-implemented."""
+"""agentlab CLI: brief, run, report, promote."""
 
 from __future__ import annotations
 
@@ -131,13 +131,13 @@ def _init_from(exp_dir: Path, src: Path) -> None:
                     "inherit_host_identity": True,
                 },
                 "budget": {
-                    "max_trials": 8,
-                    "max_parallel": 1,
-                    "wall_clock_s": 600,
-                    "per_trial": {"wall_clock_s": 120},
+                    "max_trials": 24,
+                    "max_parallel": 4,
+                    "wall_clock_s": 3600,
+                    "per_trial": {"wall_clock_s": 600},
                     "on_exceed": "stop",
                 },
-                "repetitions": 1,
+                "repetitions": 3,
             },
         )
     criteria = exp_dir / "criteria.md"
