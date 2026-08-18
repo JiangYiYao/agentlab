@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-Plan and run experiments on an existing Skill or agent workflow when you want one capability to get better — faster, cheaper, fewer missed facts, or fit to ship. This is not for scaffolding a new SKILL.md from scratch.
+Plan and run a comparison on an existing Skill or agent workflow: agree on a change, run it against the current version, and judge by the standards you name. Not for scaffolding a new SKILL.md (use create-skill).
 
 AgentLab is a standard skill. Copy [`skills/agentlab/`](skills/agentlab/) into your coding agent. The CLI lives in that folder (`scripts/cli.py`); the agent runs it.
 
