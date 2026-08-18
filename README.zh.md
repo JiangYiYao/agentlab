@@ -39,7 +39,8 @@ skills/agentlab/
   SKILL.md                 立项说明（给 agent 读）
   scripts/cli.py           命令入口
   scripts/agentlab/        实现
-  references/case2.md     交易 skill 的推荐关注点
+  references/contract.md  契约怎么写
+  references/trading.md   仅当测交易 skill 时用
 ```
 
 被测的那个 Skill 不会被拷进 `~/.claude/skills`。要让模型按 Skill 做事，prompt 里写阅读 `${program_root}/SKILL.md`。

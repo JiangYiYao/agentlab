@@ -39,7 +39,8 @@ skills/agentlab/
   SKILL.md                 briefing instructions
   scripts/cli.py           command entry
   scripts/agentlab/        implementation
-  references/case2.md     suggested concerns for a trading skill
+  references/contract.md  experiment.yaml shape
+  references/trading.md   only when the target is a trading skill
 ```
 
 The Skill under test is not copied into `~/.claude/skills`. If the model should follow a Skill, the prompt tells it to read `${program_root}/SKILL.md`.
