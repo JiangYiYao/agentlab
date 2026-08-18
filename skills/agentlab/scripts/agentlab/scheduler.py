@@ -29,7 +29,7 @@ from agentlab.models import Score, Trial
 from agentlab.recipes import bound_command
 from agentlab.replay.wrapper_src import render_wrapper
 from agentlab.runner.shell import ShellRunner, athlete_argv
-from agentlab.schema import Experiment, fingerprint_contract
+from agentlab.schema import Experiment, fingerprint_contract, fingerprint_score_basis
 from agentlab.templates import build_context, host_scutio_python, host_scutio_toolkit_scripts
 
 
@@ -97,7 +97,7 @@ def _workspace_snap(trial: Trial) -> list[str]:
     return sorted(names)
 
 
-def _write_meta(trial: Trial, extra: dict[str, Any]) -> None:
+def _write_meta(trial: Trial, extra: dict[str, Any], *, score_basis: str | None = None) -> None:
     meta = {
         "trial_id": trial.id,
         "variant_id": trial.variant.id,
@@ -106,6 +106,7 @@ def _write_meta(trial: Trial, extra: dict[str, Any]) -> None:
         "repeat": trial.repeat,
         "role": trial.variant.role,
         "contract_hash": trial.contract_hash,
+        "score_basis": score_basis,
         "freeze_sha": trial.freeze_sha,
         "error_code": trial.error_code,
         "killed_reason": trial.killed_reason,
@@ -126,8 +127,16 @@ def _write_scores(trial: Trial) -> None:
     (trial.trial_dir() / "scores.json").write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
+def _meta_current(meta: dict[str, Any], exp: Experiment) -> bool:
+    basis = fingerprint_score_basis(exp)
+    if meta.get("score_basis") == basis:
+        return True
+    if not meta.get("score_basis") and meta.get("contract_hash") == fingerprint_contract(exp):
+        return True
+    return False
+
+
 def load_current_records(exp: Experiment, root: Path) -> tuple[list[TrialRecord], list[str]]:
-    digest = fingerprint_contract(exp)
     records: list[TrialRecord] = []
     stale: list[str] = []
     trials_dir = root / "trials"
@@ -136,7 +145,7 @@ def load_current_records(exp: Experiment, root: Path) -> tuple[list[TrialRecord]
     for meta_path in trials_dir.glob("*/meta.json"):
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         scores_path = meta_path.parent / "scores.json"
-        if meta.get("contract_hash") != digest:
+        if not _meta_current(meta, exp):
             stale.append(meta.get("trial_id", meta_path.parent.name))
             continue
         if not scores_path.is_file():
@@ -197,7 +206,7 @@ def run_experiment(
                 if tracker.exceeded():
                     budget_incomplete = _skip_rest(remaining[remaining.index(trial) :], tracker, exp)
                     break
-                _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox)
+                _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, force=force)
         else:
             with ThreadPoolExecutor(max_workers=parallel) as pool:
                 futs = []
@@ -205,7 +214,7 @@ def run_experiment(
                     if tracker.exceeded():
                         budget_incomplete = _skip_rest([t for t in remaining if t.result is None and not t.scores], tracker, exp)
                         break
-                    futs.append(pool.submit(_run_one, exp, root, trial, tracker, leaks_before, keep_sandbox))
+                    futs.append(pool.submit(_run_one, exp, root, trial, tracker, leaks_before, keep_sandbox, force=force))
                 for fut in as_completed(futs):
                     fut.result()
 
@@ -245,7 +254,7 @@ def _skip_rest(rest: list[Trial], tracker: BudgetTracker, exp: Experiment) -> bo
         trial.killed_reason = tracker.exceeded_reason or "budget_experiment"
         trial.scores = fail_closed_for_gates(trial, exp, reason=trial.killed_reason)
         trial.trial_dir().mkdir(parents=True, exist_ok=True)
-        _write_meta(trial, {})
+        _write_meta(trial, {}, score_basis=fingerprint_score_basis(exp))
         _write_scores(trial)
     return True
 
@@ -266,6 +275,21 @@ def _prune_orphans(exp: Experiment, root: Path) -> None:
             shutil.rmtree(sandbox, ignore_errors=True)
 
 
+def _reuse_completed(trial: Trial, exp: Experiment) -> bool:
+    meta_path = trial.trial_dir() / "meta.json"
+    scores_path = trial.trial_dir() / "scores.json"
+    if not meta_path.is_file() or not scores_path.is_file():
+        return False
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    if meta.get("skipped"):
+        return False
+    if not _meta_current(meta, exp):
+        return False
+    raw = json.loads(scores_path.read_text(encoding="utf-8"))
+    trial.scores = [Score.from_json(item) for item in raw]
+    return True
+
+
 def _run_one(
     exp: Experiment,
     root: Path,
@@ -273,7 +297,11 @@ def _run_one(
     tracker: BudgetTracker,
     leaks_before: dict[str, str],
     keep_sandbox: bool,
+    *,
+    force: bool = False,
 ) -> None:
+    if not force and _reuse_completed(trial, exp):
+        return
     trial.trial_dir().mkdir(parents=True, exist_ok=True)
     trial.outputs_dir().mkdir(parents=True, exist_ok=True)
     iso = _make_isolation(exp, trial, root)
@@ -335,7 +363,7 @@ def _run_one(
         # persist workspace snap for workspace_diff
         snap = _workspace_snap(trial)
         meta_pre = {"workspace_snap": snap, "worktree": bool(sandbox.worktree)}
-        _write_meta(trial, meta_pre)
+        _write_meta(trial, meta_pre, score_basis=fingerprint_score_basis(exp))
         runner = ShellRunner(exp)
         prompt_path = runner.prepare(trial, ctx)
         argv, mode, flag = athlete_argv(exp, trial, ctx)
@@ -379,7 +407,11 @@ def _run_one(
         trial.error_code = "eval_failed"
         trial.scores = fail_closed_for_gates(trial, exp, reason=str(exc))
     finally:
-        _write_meta(trial, {"workspace_snap": _workspace_snap(trial) if trial.sandbox else []})
+        _write_meta(
+            trial,
+            {"workspace_snap": _workspace_snap(trial) if trial.sandbox else []},
+            score_basis=fingerprint_score_basis(exp),
+        )
         if trial.scores:
             _write_scores(trial)
         keep = keep_sandbox or exp.isolation.keep_sandbox

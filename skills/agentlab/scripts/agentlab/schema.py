@@ -387,5 +387,28 @@ def fingerprint_contract(exp: Experiment) -> str:
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def fingerprint_score_basis(exp: Experiment) -> str:
+    """Hash of what a completed trial's scores depend on.
+
+    Adding or changing a treatment does not change this, so a saved
+    baseline can be reused. Changing concerns, cases, cells, isolation,
+    or the baseline path does.
+    """
+    baseline = next(v for v in exp.variants if v.role == "baseline")
+    obj = {
+        "schema_version": exp.schema_version,
+        "artifact": exp.artifact.model_dump(mode="json"),
+        "criteria": exp.criteria.model_dump(mode="json"),
+        "concerns": [c.model_dump(mode="json") for c in exp.concerns],
+        "cells": [c.model_dump(mode="json") for c in exp.matrix.cells],
+        "cases": [c.model_dump(mode="json") for c in exp.cases],
+        "isolation": exp.isolation.model_dump(mode="json"),
+        "baseline": {"id": baseline.id, "path": baseline.path},
+        "judge": exp.judge.model_dump(mode="json") if exp.judge else None,
+    }
+    canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
 def trial_count(exp: Experiment) -> int:
     return len(exp.variants) * len(exp.matrix.cells) * len(exp.cases) * exp.repetitions

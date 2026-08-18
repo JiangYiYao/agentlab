@@ -6,8 +6,8 @@ import pytest
 import yaml
 
 from agentlab.errors import ContractError
-from agentlab.schema import fingerprint_contract
-from agentlab.validate import load_experiment, parse_experiment, validate_experiment, write_criteria_hash
+from agentlab.schema import fingerprint_contract, fingerprint_score_basis
+from agentlab.validate import load_experiment, load_raw, parse_experiment, validate_experiment, write_criteria_hash
 from tests.helpers import make_min_exp
 
 
@@ -25,6 +25,32 @@ def test_load_minimal_fixture(tmp_path: Path) -> None:
     digest = fingerprint_contract(exp)
     assert digest.startswith("sha256:")
     assert len(digest) == 71
+
+
+def test_score_basis_stable_when_adding_treatment(tmp_path: Path) -> None:
+    dest = make_min_exp(tmp_path / "exp")
+    exp = load_experiment(dest)
+    before = fingerprint_score_basis(exp)
+    raw = load_raw(dest)
+    raw["variants"].append(
+        {
+            "id": "news-cap",
+            "role": "treatment",
+            "path": "variants/treatment",
+            "parent": "baseline",
+            "created_by": "manual",
+            "hypothesis": {
+                "change": "cap news",
+                "bet": "faster",
+                "hurt": "miss",
+                "falsify": "slower",
+            },
+        }
+    )
+    dest.joinpath("experiment.yaml").write_text(yaml.safe_dump(raw, sort_keys=False), encoding="utf-8")
+    after = load_experiment(dest)
+    assert fingerprint_score_basis(after) == before
+    assert fingerprint_contract(after) != fingerprint_contract(exp)
 
 
 def test_fingerprint_includes_criteria_sha256(tmp_path: Path) -> None:
