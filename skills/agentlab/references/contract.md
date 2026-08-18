@@ -68,10 +68,12 @@ budget:
   wall_clock_s: 3600
   per_trial: { wall_clock_s: 600 }
   on_exceed: stop
-repetitions: 1
+repetitions: 3
 promotion:
   all_cells_must_pass: true
 ```
+
+有噪声的对照（真 CLI、外搜、LLM 裁判）`repetitions` 默认 **3**。只有确定性假 command 才写成 `1`。`budget.max_parallel` 默认 2～4，不要无故写成 1。
 
 源目录在 git 仓里、要比工作区改动时，把 `isolation` 改成 `type: git-worktree`，并写 `repo`（夹具仓或源仓相对实验根的路径）和 `freeze: HEAD`。
 

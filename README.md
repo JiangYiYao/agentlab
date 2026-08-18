@@ -38,6 +38,7 @@ python3 <skills/agentlab>/scripts/cli.py report --exp <experiment-dir>
 skills/agentlab/
   SKILL.md                 briefing instructions
   scripts/cli.py           command entry
+  scripts/ensure_python.py isolate a 3.11+ interpreter
   scripts/agentlab/        implementation
   references/contract.md  experiment.yaml shape
   references/trading.md   only when the target is a trading skill

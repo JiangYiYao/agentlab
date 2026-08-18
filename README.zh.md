@@ -38,6 +38,7 @@ python3 <skills/agentlab>/scripts/cli.py report --exp <实验目录>
 skills/agentlab/
   SKILL.md                 立项说明（给 agent 读）
   scripts/cli.py           命令入口
+  scripts/ensure_python.py 准备 3.11+ 解释器
   scripts/agentlab/        实现
   references/contract.md  契约怎么写
   references/trading.md   仅当测交易 skill 时用
