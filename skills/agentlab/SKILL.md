@@ -4,7 +4,7 @@ description: >
   规划并跑对照实验，优化已经存在的 Skill 或 agent 工作流里的某一项能力
   （更快、更省 token、某类事实不漏、改完能不能用）。一起谈方案、落改法、
   按关注点比改前改后。触发：优化 skill、测这个目录、对比改法、降 token、
-  新闻搜索、做实验、能不能发、/agentlab。不要用于从零创建或脚手架一份新
+  做实验、能不能发、/agentlab。不要用于从零创建或脚手架一份新
   SKILL.md（那是 create-skill / /create-skill）。
 ---
 
