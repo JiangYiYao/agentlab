@@ -18,7 +18,7 @@ For example:
 
 > Test `~/code/scutio/skills/scutio-trading`. I want time and tokens down, with the same direction/action labels, the report still having 结论 / 依据 / 改变判断的条件, and outputs still under `$SCUTIO_HOME/cache/trading`. I use `claude --print` on this machine. Use the synthetic replay fixture in this repo; don’t fetch live news.
 
-It may still ask how the prompt is passed, what the budget is, and which change to turn into a candidate. After you confirm the criteria it writes the experiment under `experiments/<id>/`, runs it, and goes through each gate.
+It may still ask how the prompt is passed, and which change to turn into a candidate. After you confirm the criteria it writes the experiment under `experiments/<id>/`, runs it, and goes through each gate. There is no default time or spend cap.
 
 Scores are whatever that run wrote down. To compare another change, say which one to try.
 

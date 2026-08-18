@@ -19,7 +19,7 @@ class BudgetTracker:
         self.exceeded_reason: str | None = None
 
     def exceeded(self) -> bool:
-        if time.time() - self.started > self.budget.wall_clock_s:
+        if self.budget.wall_clock_s is not None and time.time() - self.started > self.budget.wall_clock_s:
             self.exceeded_reason = "budget_experiment"
             return True
         reserved_usd = self.running * (self.budget.per_trial.usd or 0)
@@ -32,9 +32,16 @@ class BudgetTracker:
             return True
         return False
 
-    def trial_deadline(self) -> float:
-        remaining_exp = self.started + self.budget.wall_clock_s - time.time()
-        return time.time() + min(self.budget.per_trial.wall_clock_s, max(0.1, remaining_exp))
+    def trial_deadline(self) -> float | None:
+        now = time.time()
+        remaining: list[float] = []
+        if self.budget.wall_clock_s is not None:
+            remaining.append(self.started + self.budget.wall_clock_s - now)
+        if self.budget.per_trial.wall_clock_s is not None:
+            remaining.append(float(self.budget.per_trial.wall_clock_s))
+        if not remaining:
+            return None
+        return now + max(0.1, min(remaining))
 
     @contextmanager
     def trial_watch(self, trial: Trial) -> Iterator[None]:
@@ -42,7 +49,7 @@ class BudgetTracker:
         deadline = self.trial_deadline()
         try:
             yield
-            if time.time() > deadline:
+            if deadline is not None and time.time() > deadline:
                 raise BudgetExceeded("timeout")
         finally:
             self.running -= 1

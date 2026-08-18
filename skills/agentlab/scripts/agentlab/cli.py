@@ -133,9 +133,6 @@ def _init_from(exp_dir: Path, src: Path) -> None:
                 "budget": {
                     "max_trials": 24,
                     "max_parallel": 4,
-                    "wall_clock_s": 3600,
-                    "per_trial": {"wall_clock_s": 600},
-                    "on_exceed": "stop",
                 },
                 "repetitions": 3,
             },
@@ -168,6 +165,19 @@ def _write_baseline(exp_dir: Path, src: Path | None, source_path: str | None) ->
     _copy_tree(origin, dest)
 
 
+def _budget_limits_label(exp) -> str:
+    parts: list[str] = []
+    if exp.budget.wall_clock_s is not None:
+        parts.append(f"experiment {exp.budget.wall_clock_s}s")
+    if exp.budget.per_trial.wall_clock_s is not None:
+        parts.append(f"per_trial {exp.budget.per_trial.wall_clock_s}s")
+    if exp.budget.usd is not None:
+        parts.append(f"usd {exp.budget.usd}")
+    if exp.budget.tokens is not None:
+        parts.append(f"tokens {exp.budget.tokens}")
+    return "、".join(parts) if parts else "不设"
+
+
 def _write_brief_md(path: Path, exp, contract_hash: str, runnable: bool, warnings: list[str], errors: list[str]) -> None:
     concerns = "\n".join(f"  - {c.id} ({c.role}): {c.intent}" for c in exp.concerns)
     cells = []
@@ -191,7 +201,7 @@ def _write_brief_md(path: Path, exp, contract_hash: str, runnable: bool, warning
 - 矩阵:
 {chr(10).join(cells)}
 - 用例: {cases}
-- 预算: max_parallel={exp.budget.max_parallel}, per_trial {exp.budget.per_trial.wall_clock_s}s, experiment {exp.budget.wall_clock_s}s
+- 并行: max_parallel={exp.budget.max_parallel}；墙钟/金额/token 上限: {_budget_limits_label(exp)}
 - 隔离: {exp.isolation.type}
 - 明确不做: 自动演化、写用户全局 skills
 

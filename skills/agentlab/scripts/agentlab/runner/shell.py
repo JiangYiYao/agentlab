@@ -40,7 +40,7 @@ class ShellRunner:
         cwd: Path,
         env: dict[str, str],
         prompt_path: Path,
-        deadline: float,
+        deadline: float | None,
         prompt_mode: str = "stdin",
         prompt_flag: str = "--prompt-file",
     ) -> RunnerResult:
@@ -72,10 +72,10 @@ class ShellRunner:
                     **start_session_kwargs(),
                 )
                 try:
-                    remaining = max(0.1, deadline - time.time())
+                    timeout = None if deadline is None else max(0.1, deadline - time.time())
                     self._proc.communicate(
                         input=stdin_data.encode() if stdin_data is not None else None,
-                        timeout=remaining,
+                        timeout=timeout,
                     )
                 except subprocess.TimeoutExpired:
                     kill_process_group(self._proc.pid)

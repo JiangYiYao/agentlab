@@ -297,7 +297,7 @@ class Case(StrictModel):
 
 
 class PerTrialBudget(StrictModel):
-    wall_clock_s: int = 600
+    wall_clock_s: int | None = None
     tokens: int | None = None
     usd: float | None = None
 
@@ -305,7 +305,7 @@ class PerTrialBudget(StrictModel):
 class Budget(StrictModel):
     max_trials: int = 40
     max_parallel: int = 4
-    wall_clock_s: int = 7200
+    wall_clock_s: int | None = None
     tokens: int | None = None
     usd: float | None = None
     per_trial: PerTrialBudget = Field(default_factory=PerTrialBudget)

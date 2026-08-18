@@ -65,17 +65,14 @@ isolation:
 budget:
   max_trials: 24
   max_parallel: 4
-  wall_clock_s: 3600
-  per_trial: { wall_clock_s: 600 }
-  on_exceed: stop
 repetitions: 3
 promotion:
   all_cells_must_pass: true
 ```
 
-只有确定性假 command 才把 `repetitions` / `max_parallel` 写成 `1`。
+只有确定性假 command 才把 `repetitions` / `max_parallel` 写成 `1`。不要写 `wall_clock_s` / `usd` / `tokens`，除非用户要求设上限。
 
-源目录在 git 仓里、要比工作区改动时，把 `isolation` 改成 `type: git-worktree`，并写 `repo`（夹具仓或源仓相对实验根的路径）和 `freeze: HEAD`。
+源目录在 git 仓里、要比工作区改动时，把 `isolation` 改成 `type: git-worktree`，并写 `repo`（放测试材料的仓或源仓，相对实验根的路径）和 `freeze: HEAD`。
 
 被测程序往固定家目录写产物（例如 `$SCUTIO_HOME`）时，用 `type: homedir`，需要的 `SCUTIO_*` / `AGENTLAB_*` 写在 `isolation.env_inject`。不要在 `cell.env` 里写 `HOME` / `SCUTIO_HOME` / `CODEX_HOME` / `CLAUDE_CONFIG_DIR`。
 

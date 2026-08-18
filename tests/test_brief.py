@@ -47,6 +47,8 @@ def test_brief_init_from(tmp_path: Path) -> None:
     assert exp.repetitions == 3
     assert exp.budget.max_parallel == 4
     assert exp.budget.max_trials == 24
+    assert exp.budget.wall_clock_s is None
+    assert exp.budget.per_trial.wall_clock_s is None
 
 
 def test_run_dry_expand(tmp_path: Path) -> None:
