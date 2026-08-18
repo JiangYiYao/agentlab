@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-改完一份 Skill（或自己写的工作流目录）后，用本机已经能跑的命令，按你在乎的几件事比改前改后，看这次能不能发。
+已经有一份 Skill 或 agent 工作流，想把其中某一项做快一点、省一点、少漏事实、或确认能不能用：一起谈方案、做对照实验。不是从零写一份新的 SKILL.md。
 
 这是一个标准 skill：把 [`skills/agentlab/`](skills/agentlab/) 拷进你的 coding agent 即可。CLI 在 skill 里面（`scripts/cli.py`），对话里的 agent 会自己执行它。
 

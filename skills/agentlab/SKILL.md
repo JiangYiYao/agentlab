@@ -1,11 +1,18 @@
 ---
 name: agentlab
-description: 测一份 Agent 目录改动能不能发。问清必要问题后自己跑本 skill 的 scripts/cli.py（brief / run / report），按关注点说明结果。不要让用户找 yaml 或自己敲命令。
+description: >
+  规划并跑对照实验，优化已经存在的 Skill 或 agent 工作流里的某一项能力
+  （更快、更省 token、某类事实不漏、改完能不能用）。一起谈方案、落改法、
+  按关注点比改前改后。触发：优化 skill、测这个目录、对比改法、降 token、
+  新闻搜索、做实验、能不能发、/agentlab。不要用于从零创建或脚手架一份新
+  SKILL.md（那是 create-skill / /create-skill）。
 ---
 
 # AgentLab
 
-跟用户把实验问清楚，你自己写文件、自己跑完、按关注点讲能不能发。分数只认 `run` 写下来的结果。
+帮用户把「想改 Skill / agent 的哪一项能力」谈清楚，一起定实验方案，你来落改法、跑对照、按关注点讲这一刀有没有变好、能不能用。对象是已经存在的目录（Skill 或自己写的工作流），不是从零新建一个 skill。
+
+分数只认 `run` 写下来的结果。不要让用户去翻 yaml 或自己敲命令。
 
 ## 定位本 skill 和 Python
 

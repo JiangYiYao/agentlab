@@ -2,7 +2,7 @@
 
 [English](README.md) · [中文](README.zh.md)
 
-After you change a Skill (or a small workflow directory), compare the old and new versions with the local command you already use, on the things you care about, and decide whether to ship.
+Plan and run experiments on an existing Skill or agent workflow when you want one capability to get better — faster, cheaper, fewer missed facts, or fit to ship. This is not for scaffolding a new SKILL.md from scratch.
 
 AgentLab is a standard skill. Copy [`skills/agentlab/`](skills/agentlab/) into your coding agent. The CLI lives in that folder (`scripts/cli.py`); the agent runs it.
 
