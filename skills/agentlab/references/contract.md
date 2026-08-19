@@ -10,7 +10,7 @@
 
 `criteria.md` 按关注点分节（`## <concern.id>`）。用户口头确认标准后，用 `brief --confirm-criteria` 写入 `criteria.sha256`，不要手填哈希。
 
-格子的 `command[0]` 必须在 PATH 上（`brief` 会查）。模型配置可省略，沿用该命令本机已有的登录。
+被测命令的第一个词必须在 PATH 上（`brief` 会查）。模型配置可省略，沿用该命令本机已有的登录。
 
 ## 最小可跑草稿
 

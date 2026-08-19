@@ -28,4 +28,4 @@ report_from: { json_path: "$.new_run_dir", suffix: "analysis/report.md" }
 
 prompt 里写死 `TRADING_SKILL_DIR=${program_root}`，不要去跑用户家目录或仓外的作者原树。
 
-隔离用 `homedir`，由 runner 注入独立 `SCUTIO_HOME` 和 replay 用的 Python wrapper。不要改 skill 去「复用已有 run」。
+隔离用 `homedir`：产物写独立的 `SCUTIO_HOME`。取数用用户本机已经能用的解释器和 toolkit（例如 `SCUTIO_PYTHON` 指到已有 venv），不要只建一个空家目录导致取不到数。有回放数据时由 runner 注入 Python wrapper。不要改 skill 去「复用已有 run」。
