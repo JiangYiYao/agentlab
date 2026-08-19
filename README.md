@@ -63,7 +63,7 @@ skills/agentlab/
   scripts/ensure_python.py isolate a 3.11+ interpreter
   scripts/agentlab/        implementation
   references/contract.md  experiment.yaml shape
-  references/coding.md    only when the target edits a real git repo
+  references/coding.md    recipe when the skill edits a real git repo
 ```
 
 The Skill under test is not copied into your global skills folder. If the model should follow a Skill, the prompt tells it to read `${program_root}/SKILL.md`.
@@ -83,7 +83,7 @@ pytest -q
 
 `pip install -e .` also puts `agentlab` on PATH; it is the same code as `scripts/cli.py`. After briefing, `experiment.yaml` contains `criteria.sha256`.
 
-`--gate` exit codes: `0` the required checks held, `1` something required did not hold so the change is not usable, `2` the contract is invalid, `3` a cap you set stopped an incomplete run.
+`--gate` exit codes: `0` the required checks held, `1` something required did not hold so the change is not usable, `2` the contract is invalid, `3` a cap you set stopped an incomplete run, or the command could not start (workspace trust, login, bad model/flags) so the rest of the batch was skipped.
 
 | Subcommand | What it does |
 |---|---|

@@ -7,6 +7,7 @@ import time
 from pathlib import Path
 
 from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
+from agentlab.envfail import classify_env_error
 from agentlab.errors import ContractError
 from agentlab.models import RunnerResult, Trial, Usage
 from agentlab.recipes import bound_command
@@ -71,17 +72,26 @@ class ShellRunner:
                     stderr=se,
                     **start_session_kwargs(),
                 )
-                try:
-                    timeout = None if deadline is None else max(0.1, deadline - time.time())
-                    self._proc.communicate(
-                        input=stdin_data.encode() if stdin_data is not None else None,
-                        timeout=timeout,
-                    )
-                except subprocess.TimeoutExpired:
-                    kill_process_group(self._proc.pid)
-                    self._proc.wait(timeout=15)
-                    killed = "timeout"
-                    error_code = "command_timeout"
+                if stdin_data is not None and self._proc.stdin is not None:
+                    self._proc.stdin.write(stdin_data.encode())
+                if self._proc.stdin is not None:
+                    self._proc.stdin.close()
+                while True:
+                    try:
+                        self._proc.wait(timeout=0.5)
+                        break
+                    except subprocess.TimeoutExpired:
+                        if deadline is not None and time.time() >= deadline:
+                            _stop(self._proc)
+                            killed = "timeout"
+                            error_code = "command_timeout"
+                            break
+                        hit = _env_hit(stdout_path, stderr_path)
+                        if hit:
+                            _stop(self._proc)
+                            killed = hit
+                            error_code = "env_unusable"
+                            break
         except FileNotFoundError:
             error_code = "bin_not_found"
             killed = None
@@ -116,6 +126,39 @@ class ShellRunner:
     def kill(self) -> None:
         if self._proc and self._proc.pid:
             kill_process_group(self._proc.pid)
+
+
+def _stop(proc: subprocess.Popen) -> None:
+    if proc.pid:
+        kill_process_group(proc.pid, grace_s=1.0)
+    try:
+        proc.terminate()
+    except ProcessLookupError:
+        pass
+    _wait_dead(proc, timeout=2.0)
+    if proc.poll() is None:
+        try:
+            proc.kill()
+        except ProcessLookupError:
+            pass
+        _wait_dead(proc, timeout=3.0)
+
+
+def _wait_dead(proc: subprocess.Popen, *, timeout: float = 15.0) -> None:
+    try:
+        proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return
+
+
+def _env_hit(stdout_path: Path, stderr_path: Path) -> str | None:
+    chunks: list[str] = []
+    for path in (stderr_path, stdout_path):
+        try:
+            chunks.append(path.read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            continue
+    return classify_env_error("\n".join(chunks))
 
 
 def athlete_argv(exp: Experiment, trial: Trial, ctx: dict[str, str]) -> tuple[list[str], str, str]:

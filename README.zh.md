@@ -70,7 +70,7 @@ skills/agentlab/
   scripts/ensure_python.py 准备 3.11+ 解释器
   scripts/agentlab/        实现
   references/contract.md  契约怎么写
-  references/coding.md    仅当测编码 skill、任务跑在真实代码库时用
+  references/coding.md    被测 skill 要改真实代码库时的完整草稿
 ```
 
 被测的那个 Skill 不会被拷进你的全局 skills。要让模型按 Skill 做事，prompt 里写阅读 `${program_root}/SKILL.md`。
@@ -90,7 +90,7 @@ pytest -q
 
 `pip install -e .` 也会在 PATH 里提供 `agentlab`，和 `scripts/cli.py` 是同一套代码。`brief --confirm-criteria` 之后 `experiment.yaml` 里会有 `criteria.sha256`。
 
-`--gate` 退出码：`0` 必须满足的都满足，`1` 有必须满足的没满足所以这版不能用，`2` 契约不合法，`3` 你设了上限并且到了、实验没跑完。
+`--gate` 退出码：`0` 必须满足的都满足，`1` 有必须满足的没满足所以这版不能用，`2` 契约不合法，`3` 上限到了或命令起不来（工作区未信任、未登录、模型/参数不对），整批停了、实验没跑完。
 
 | 子命令 | 作用 |
 |---|---|

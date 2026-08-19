@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from pathlib import Path
@@ -173,6 +174,7 @@ def run_experiment(
     if not lock.acquire(blocking=False):
         raise ContractError("run_in_progress", "another agentlab run holds run.lock")
     budget_incomplete = False
+    abort_env = threading.Event()
     try:
         _prune_orphans(exp, root)
         tracker = BudgetTracker(exp.budget)
@@ -181,18 +183,37 @@ def run_experiment(
         remaining = list(trials)
         if parallel <= 1:
             for trial in remaining:
+                if abort_env.is_set():
+                    _skip_rest(remaining[remaining.index(trial) :], tracker, exp, reason="env_unusable")
+                    break
                 if tracker.exceeded():
                     budget_incomplete = _skip_rest(remaining[remaining.index(trial) :], tracker, exp)
                     break
-                _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, force=force)
+                _run_one(
+                    exp, root, trial, tracker, leaks_before, keep_sandbox, force=force, abort_env=abort_env
+                )
         else:
             with ThreadPoolExecutor(max_workers=parallel) as pool:
                 futs = []
                 for trial in remaining:
                     if tracker.exceeded():
-                        budget_incomplete = _skip_rest([t for t in remaining if t.result is None and not t.scores], tracker, exp)
+                        budget_incomplete = _skip_rest(
+                            [t for t in remaining if t.result is None and not t.scores], tracker, exp
+                        )
                         break
-                    futs.append(pool.submit(_run_one, exp, root, trial, tracker, leaks_before, keep_sandbox, force=force))
+                    futs.append(
+                        pool.submit(
+                            _run_one,
+                            exp,
+                            root,
+                            trial,
+                            tracker,
+                            leaks_before,
+                            keep_sandbox,
+                            force=force,
+                            abort_env=abort_env,
+                        )
+                    )
                 for fut in as_completed(futs):
                     fut.result()
 
@@ -211,25 +232,31 @@ def run_experiment(
             all_skipped = True
         if not records:
             all_skipped = True
+        env_incomplete = abort_env.is_set() or any(t.error_code == "env_unusable" for t in trials)
         code = gate_exit_code(
             promo,
             gate=gate,
             budget_incomplete=budget_incomplete,
             zero_trials=len(trials) == 0,
             all_skipped=all_skipped and gate,
+            env_incomplete=env_incomplete,
         )
-        _print_summary(exp, records, promo, gate)
+        _print_summary(exp, records, promo, gate, trials=trials)
         return code, promo, trials
     finally:
         lock.release()
 
 
-def _skip_rest(rest: list[Trial], tracker: BudgetTracker, exp: Experiment) -> bool:
+def _skip_rest(
+    rest: list[Trial], tracker: BudgetTracker, exp: Experiment, *, reason: str | None = None
+) -> bool:
     for trial in rest:
         if trial.scores or trial.result:
             continue
         trial.skipped = True
-        trial.killed_reason = tracker.exceeded_reason or "budget_experiment"
+        trial.killed_reason = reason or tracker.exceeded_reason or "budget_experiment"
+        if reason == "env_unusable":
+            trial.error_code = "env_unusable"
         trial.scores = fail_closed_for_gates(trial, exp, reason=trial.killed_reason)
         trial.trial_dir().mkdir(parents=True, exist_ok=True)
         _write_meta(trial, {}, score_basis=fingerprint_score_basis(exp))
@@ -281,7 +308,17 @@ def _run_one(
     keep_sandbox: bool,
     *,
     force: bool = False,
+    abort_env: threading.Event | None = None,
 ) -> None:
+    if abort_env is not None and abort_env.is_set():
+        trial.skipped = True
+        trial.error_code = "env_unusable"
+        trial.killed_reason = "env_unusable"
+        trial.scores = fail_closed_for_gates(trial, exp, reason="env_unusable")
+        trial.trial_dir().mkdir(parents=True, exist_ok=True)
+        _write_meta(trial, {}, score_basis=fingerprint_score_basis(exp))
+        _write_scores(trial)
+        return
     if not force and _reuse_completed(trial, exp):
         return
     trial.trial_dir().mkdir(parents=True, exist_ok=True)
@@ -352,7 +389,17 @@ def _run_one(
                 prompt_mode=mode,
                 prompt_flag=flag,
             )
-            trial.scores = score_concerns(trial, exp, ctx, env)
+            if trial.result and trial.result.error_code:
+                trial.error_code = trial.result.error_code
+                trial.killed_reason = trial.result.killed_reason or trial.killed_reason
+            if trial.error_code == "env_unusable":
+                if abort_env is not None:
+                    abort_env.set()
+                trial.scores = fail_closed_for_gates(
+                    trial, exp, reason=trial.killed_reason or "env_unusable"
+                )
+            else:
+                trial.scores = score_concerns(trial, exp, ctx, env)
         leaks_after = snapshot_forbidden_paths()
         leaked = leak_scores(leaks_before, leaks_after)
         wrong_tree = False
@@ -399,7 +446,21 @@ def _run_one(
                     iso.destroy(trial.sandbox)
 
 
-def _print_summary(exp: Experiment, records: list[TrialRecord], promo: Promotion, gate: bool) -> None:
+def _print_summary(
+    exp: Experiment,
+    records: list[TrialRecord],
+    promo: Promotion,
+    gate: bool,
+    *,
+    trials: list[Trial] | None = None,
+) -> None:
+    env_hits = [t for t in (trials or []) if t.error_code == "env_unusable"]
+    if env_hits:
+        reason = env_hits[0].killed_reason or "env_unusable"
+        print(f"env_unusable: {reason}")
+        skipped = sum(1 for t in (trials or []) if t.skipped)
+        if skipped:
+            print(f"skipped_after_env_unusable: {skipped}")
     print(f"trials_scored: {len(records)}")
     print(f"system_ok: {promo.system_ok}")
     if not promo.variants:

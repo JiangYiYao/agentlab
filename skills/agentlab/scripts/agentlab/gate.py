@@ -291,8 +291,9 @@ def gate_exit_code(
     budget_incomplete: bool,
     zero_trials: bool,
     all_skipped: bool,
+    env_incomplete: bool = False,
 ) -> int:
-    if budget_incomplete:
+    if budget_incomplete or env_incomplete:
         return 3
     if not gate:
         return 0
