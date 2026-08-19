@@ -172,7 +172,7 @@ def test_unknown_concern_in_accept(tmp_path: Path) -> None:
 
 def test_reserved_env_key_on_cell(tmp_path: Path) -> None:
     data = _data(tmp_path)
-    data["matrix"]["cells"][0]["env"] = {"SCUTIO_HOME": "/tmp/x"}
+    data["matrix"]["cells"][0]["env"] = {"HOME": "/tmp/x"}
     with pytest.raises(ContractError) as ei:
         parse_experiment(data)
     assert ei.value.code == "reserved_env_key"
@@ -188,23 +188,19 @@ def test_reserved_env_key_on_isolation_identity(tmp_path: Path) -> None:
 
 def test_recipe_env_not_allowed(tmp_path: Path) -> None:
     data = _data(tmp_path)
-    data["recipes"] = {"local": {"command": ["true"], "env": {"SCUTIO_HOME": "x"}}}
+    data["recipes"] = {"local": {"command": ["true"], "env": {"FOO": "x"}}}
     with pytest.raises(ContractError) as ei:
         parse_experiment(data)
     assert ei.value.code == "recipe_env_not_allowed"
 
 
-def test_case2_env_inject_accepted(tmp_path: Path) -> None:
+def test_homedir_env_inject_accepted(tmp_path: Path) -> None:
     data = _data(tmp_path)
     data["isolation"] = {
         "type": "homedir",
         "inherit_host_identity": True,
         "env_inject": {
-            "SCUTIO_HOME": "${trial_out}/scutio-home",
-            "SCUTIO_PYTHON": "${trial_out}/bin/scutio-python-replay",
-            "SCUTIO_TOOLKIT_SCRIPTS": "${host.scutio_toolkit_scripts}",
-            "AGENTLAB_REPLAY_NOW": "${case.replay.clock}",
-            "AGENTLAB_REPLAY_LOCK": "${trial_out}/replay.lock.json",
+            "APP_HOME": "${trial_out}/home",
             "AGENTLAB_TRIAL_OUT": "${trial_out}",
             "AGENTLAB_EXPERIMENT_ROOT": "${experiment_root}",
             "AGENTLAB_PROJECT_ROOT": "${project_root}",

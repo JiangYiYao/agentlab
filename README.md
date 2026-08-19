@@ -37,7 +37,7 @@ flowchart TB
 
 For example:
 
-> I want to improve news search in `~/code/scutio/skills/scutio-trading`: less time and spend, without dropping facts that would change a decision.
+> I want to improve this existing skill: less time and spend, without dropping facts that would change a decision.
 
 The agent should first propose a concrete change. After you agree, it lays out the comparison (control vs treatment), asks only what it still needs (which command already works on this machine, how to pass the prompt), then runs it. There is no default time or spend cap.
 
@@ -63,7 +63,6 @@ skills/agentlab/
   scripts/ensure_python.py isolate a 3.11+ interpreter
   scripts/agentlab/        implementation
   references/contract.md  experiment.yaml shape
-  references/trading.md   only when the target is a trading skill
   references/coding.md    only when the target edits a real git repo
 ```
 

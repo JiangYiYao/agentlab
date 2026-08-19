@@ -32,10 +32,9 @@ from agentlab.leaks import (
 )
 from agentlab.models import Score, Trial
 from agentlab.recipes import bound_command
-from agentlab.replay.wrapper_src import render_wrapper
 from agentlab.runner.shell import ShellRunner, athlete_argv
 from agentlab.schema import Experiment, fingerprint_contract, fingerprint_score_basis
-from agentlab.templates import build_context, host_scutio_python, host_scutio_toolkit_scripts
+from agentlab.templates import build_context
 
 
 def _iso_kind(exp: Experiment, trial: Trial) -> str:
@@ -63,32 +62,6 @@ def _make_isolation(exp: Experiment, trial: Trial, root: Path):
     if kind == "homedir":
         return HomedirIsolation()
     return TempdirIsolation()
-
-
-def _write_replay_lock(exp: Experiment, trial: Trial) -> dict[str, Any] | None:
-    if not trial.case.replay:
-        return None
-    replay = trial.case.replay
-    freeze = trial.experiment_root / (trial.case.fixtures.snapshot if trial.case.fixtures and trial.case.fixtures.snapshot else "")
-    payload = {
-        "lock": replay.lock.model_dump(),
-        "clock": replay.clock,
-        "freeze_dir": str(freeze.resolve()) if freeze else "",
-        "cassette_path": str((trial.experiment_root / replay.cassette_path).resolve()) if replay.cassette_path else "",
-        "news": replay.news,
-    }
-    dest = trial.outputs_dir() / "replay.lock.json"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-    hook_src = Path(__file__).resolve().parent / "replay" / "scutio_hook.py"
-    hook_dir = trial.outputs_dir() / "hook"
-    hook_dir.mkdir(parents=True, exist_ok=True)
-    shutil.copy2(hook_src, hook_dir / "scutio_hook.py")
-    wrapper = trial.outputs_dir() / "bin" / "scutio-python-replay"
-    wrapper.parent.mkdir(parents=True, exist_ok=True)
-    wrapper.write_text(render_wrapper(hook_dir), encoding="utf-8")
-    wrapper.chmod(0o755)
-    return payload
 
 
 def _workspace_snap(trial: Trial) -> list[str]:
@@ -328,21 +301,14 @@ def _run_one(
         trial.sandbox = sandbox
         program = trial.program_root(exp, sandbox)
         DirArtifact().materialize(trial.variant, program, root)
-        replay = _write_replay_lock(exp, trial)
         case_path = (root / (trial.case.path or f"cases/{trial.case.id}")).resolve()
         extra = dict(exp.isolation.env_inject or {})
-        if replay:
-            extra.setdefault("AGENTLAB_REPLAY_LOCK", str(trial.outputs_dir() / "replay.lock.json"))
-            extra.setdefault("AGENTLAB_REPLAY_NOW", replay.get("clock") or "")
-            extra.setdefault("SCUTIO_PYTHON", str(trial.outputs_dir() / "bin" / "scutio-python-replay"))
-            extra.setdefault("SCUTIO_TOOLKIT_SCRIPTS", host_scutio_toolkit_scripts())
         overlays = isolation_overlays(
             experiment_root=root,
             project_root=sandbox.project_root,
             trial_out=trial.outputs_dir(),
             program_root=program,
             case_path=case_path,
-            scutio_home=(trial.outputs_dir() / "scutio-home") if replay or _iso_kind(exp, trial) == "homedir" else None,
             extra=extra,
         )
         ctx = build_context(
@@ -358,7 +324,6 @@ def _run_one(
             project_root=sandbox.project_root,
             trial_out=trial.outputs_dir(),
             program_root=program,
-            replay=replay,
         )
         env = merge_env(
             overlays=overlays,

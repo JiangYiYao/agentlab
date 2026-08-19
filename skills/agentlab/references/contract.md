@@ -76,6 +76,6 @@ promotion:
 
 源目录在 git 仓里、要比工作区改动、但任务并不是「在另一份仓里改代码」时，也可以用 `git-worktree`，`repo` 写该仓（绝对路径或相对实验根）。
 
-被测程序往固定家目录写产物（例如 `$SCUTIO_HOME`）时，用 `type: homedir`，需要的 `SCUTIO_*` / `AGENTLAB_*` 写在 `isolation.env_inject`。不要在 `cell.env` 里写 `HOME` / `SCUTIO_HOME` / `CODEX_HOME` / `CLAUDE_CONFIG_DIR`。
+被测程序往固定家目录写产物时，用 `type: homedir`，需要的家目录变量写在 `isolation.env_inject`。不要在 `cell.env` 里写 `HOME` 或同类家目录键（如 `CODEX_HOME` / `CLAUDE_CONFIG_DIR`）。
 
 `cases/main/prompt.md` 若要对 AI 下发 Skill，写明阅读并遵循 `${program_root}/SKILL.md`。不要把目录装进 `~/.claude/skills`。

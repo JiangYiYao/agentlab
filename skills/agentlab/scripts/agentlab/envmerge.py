@@ -56,7 +56,6 @@ def isolation_overlays(
     trial_out: Path,
     program_root: Path,
     case_path: Path,
-    scutio_home: Path | None,
     extra: Mapping[str, str] | None = None,
 ) -> dict[str, str]:
     out = {
@@ -66,12 +65,6 @@ def isolation_overlays(
         "AGENTLAB_PROGRAM_ROOT": str(program_root),
         "AGENTLAB_CASE_DIR": str(case_path),
     }
-    if scutio_home is not None:
-        resolved = scutio_home.resolve()
-        if str(resolved).startswith("/tmp"):
-            raise ContractError("scutio_home_unstable_path", "SCUTIO_HOME must not be under /tmp")
-        out["SCUTIO_HOME"] = str(resolved)
-        out["SCUTIO_PYTHON"] = str(trial_out / "bin" / "scutio-python-replay")
     if extra:
         out.update(extra)
     return out

@@ -44,7 +44,7 @@ flowchart TB
 
 例如：
 
-> 想优化 `~/code/scutio/skills/scutio-trading` 的新闻搜索：时间和花费降下来，会改变判断的事实不能漏。
+> 想优化这个已经存在的 skill：时间和花费降下来，会改变判断的事实不能漏。
 
 agent 应先给出一版具体改法。你点头之后，再写出对照计划（对照组 / 实验组），只补还缺的事实（本机哪条已经能登录的命令、任务说明怎么传），然后去跑。默认不设时长或花费上限。
 
@@ -70,7 +70,6 @@ skills/agentlab/
   scripts/ensure_python.py 准备 3.11+ 解释器
   scripts/agentlab/        实现
   references/contract.md  契约怎么写
-  references/trading.md   仅当测交易 skill 时用
   references/coding.md    仅当测编码 skill、任务跑在真实代码库时用
 ```
 

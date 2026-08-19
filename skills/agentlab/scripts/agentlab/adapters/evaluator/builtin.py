@@ -164,25 +164,22 @@ def _current_changed(trial: Trial, snap: list[str]) -> list[str]:
 def resolve_report_text(trial: Trial, concern: Concern, ctx: dict[str, str]) -> str:
     source = expand_templates(concern.measure.source or "", ctx)
     report_from = concern.measure.report_from or {}
-    if source.endswith("replay.json") or source.endswith("/replay.json"):
+    if report_from and Path(source).suffix == ".json":
         path = Path(source)
         if not path.is_file():
-            path = trial.outputs_dir() / "replay.json"
+            path = trial.outputs_dir() / path.name
         if not path.is_file():
-            raise FileNotFoundError("replay.json missing")
+            raise FileNotFoundError(f"{path.name} missing")
         data = json.loads(path.read_text(encoding="utf-8"))
-        jp = report_from.get("json_path", "$.new_run_dir")
-        key = jp.split(".")[-1] if isinstance(jp, str) else "new_run_dir"
-        base = data.get(key.lstrip("$.")) or data.get("new_run_dir")
-        suffix = report_from.get("suffix", "analysis/report.md")
+        jp = report_from.get("json_path", "")
+        key = jp.split(".")[-1] if isinstance(jp, str) else ""
+        base = data.get(key.lstrip("$.")) if key else None
+        suffix = report_from.get("suffix")
+        if not base or not suffix:
+            raise FileNotFoundError("report_from missing json_path or suffix")
         report = Path(base) / suffix
         return report.read_text(encoding="utf-8")
     if source in {"${report_path}", "report_path"} or concern.measure.source == "${report_path}":
-        replay = trial.outputs_dir() / "replay.json"
-        if replay.is_file():
-            data = json.loads(replay.read_text(encoding="utf-8"))
-            report = Path(data["new_run_dir"]) / "analysis" / "report.md"
-            return report.read_text(encoding="utf-8")
         raise FileNotFoundError("report_path unbound")
     path = Path(source)
     if not path.is_absolute():
@@ -270,10 +267,10 @@ def _no_upgrade(trial: Trial, concern: Concern, exp: Experiment, ctx: dict[str, 
 def _path_under(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
     file_spec = expand_templates(concern.measure.file or "", ctx)
     path = Path(file_spec)
-    if not path.is_file():
-        path = trial.outputs_dir() / "replay.json"
+    if file_spec and not path.is_file():
+        path = trial.outputs_dir() / Path(file_spec).name
     data = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
-    jp = (concern.measure.json_path or "$.new_run_dir").lstrip("$").lstrip(".")
+    jp = (concern.measure.json_path or "").lstrip("$").lstrip(".")
     cur: Any = data
     for part in jp.split("."):
         if isinstance(cur, dict):
@@ -282,11 +279,8 @@ def _path_under(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bo
             cur = None
             break
     target = Path(str(cur)).resolve() if cur else None
-    prefix_env = concern.measure.prefix_env or "SCUTIO_HOME"
-    prefix = os.environ.get(prefix_env)
-    # prefer trial overlay recorded in replay
-    if prefix_env == "SCUTIO_HOME":
-        prefix = str((trial.outputs_dir() / "scutio-home").resolve())
+    prefix_env = concern.measure.prefix_env
+    prefix = os.environ.get(prefix_env) if prefix_env else str(trial.outputs_dir().resolve())
     if target is None or not prefix:
         return False, {"target": str(cur), "prefix": prefix}
     ok = str(target).startswith(str(Path(prefix).resolve()))

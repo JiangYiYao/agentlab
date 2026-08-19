@@ -31,7 +31,7 @@ def _exp(**kwargs) -> Experiment:
                 "intent": "path",
                 "role": "gate",
                 "scope": "case",
-                "measure": {"type": "path_under", "file": "x", "json_path": "$.a", "prefix_env": "SCUTIO_HOME"},
+                "measure": {"type": "path_under", "file": "x", "json_path": "$.a", "prefix_env": "AGENTLAB_TRIAL_OUT"},
                 "pass": {"op": "==", "vs": "value", "value": True},
                 "aggregate": "all_pass",
             },

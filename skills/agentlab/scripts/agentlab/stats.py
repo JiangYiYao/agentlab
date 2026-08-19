@@ -84,8 +84,4 @@ def preview_cost(exp: Experiment) -> dict[str, Any]:
         usd = exp.budget.usd
     elif exp.budget.per_trial.usd is not None:
         usd = n * exp.budget.per_trial.usd
-    disk = None
-    # Case 2 freeze × parallel rough estimate
-    if any(c.replay for c in exp.cases):
-        disk = f"~{max(1, exp.budget.max_parallel) * 8}MB scutio-home (freeze copied per trial)"
-    return {"trials": n, "budget_usd_cap": usd if usd is not None else "n/a", "disk": disk}
+    return {"trials": n, "budget_usd_cap": usd if usd is not None else "n/a", "disk": None}

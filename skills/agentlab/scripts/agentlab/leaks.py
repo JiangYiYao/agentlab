@@ -10,11 +10,6 @@ FORBIDDEN_WRITES = [
     Path.home() / ".opencode" / "skills",
 ]
 
-HARDCODED_WRONG_TREES = [
-    Path.home() / ".scutio" / "skills" / "scutio-trading",
-]
-
-
 def fingerprint_tree(path: Path) -> str:
     if not path.exists():
         return "missing"
@@ -38,7 +33,7 @@ def leak_scores(before: dict[str, str], after: dict[str, str]) -> bool:
 
 
 def forbidden_executed_trees(source_path: str | None, experiment_root: Path) -> list[Path]:
-    out = list(HARDCODED_WRONG_TREES)
+    out: list[Path] = []
     if source_path:
         src = Path(source_path).expanduser().resolve()
         try:

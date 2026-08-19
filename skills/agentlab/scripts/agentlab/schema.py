@@ -14,10 +14,6 @@ FORBIDDEN_KEYS = {"skill_install", "harness", "rubric", "swap_order", "slices"}
 IDENTITY_ENV = {"HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR"}
 RECIPE_ENV_ALLOW = {"CODEX_HOME", "CLAUDE_CONFIG_DIR"}
 RESERVED_CELL_ENV = IDENTITY_ENV | {
-    "SCUTIO_HOME",
-    "SCUTIO_PYTHON",
-    "SCUTIO_TOOLKIT_SCRIPTS",
-    "SCUTIO_SKILLS_DIR",
     "GIT_DIR",
     "GIT_WORK_TREE",
 }
@@ -199,23 +195,6 @@ class Matrix(StrictModel):
     all_cells_must_pass: bool | None = None
 
 
-class ReplayLock(StrictModel):
-    code: str
-    name: str
-    as_of: str
-    horizon: str
-    market: str | None = None
-
-
-class Replay(StrictModel):
-    mode: Literal["snapshot_replay"]
-    lock: ReplayLock
-    clock: str | None = None
-    skip_live_network: bool = False
-    news: Literal["cassette", "omit", "live"] | None = None
-    cassette_path: str | None = None
-
-
 class Fixtures(StrictModel):
     repo: str | None = None
     freeze: str | None = None
@@ -274,7 +253,6 @@ class Case(StrictModel):
     timeout_s: int | None = None
     isolation: CaseIsolation | None = None
     fixtures: Fixtures | None = None
-    replay: Replay | None = None
     expected_labels: dict[str, Any] | None = None
     env: dict[str, str] | None = None
 

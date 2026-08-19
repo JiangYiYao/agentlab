@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import os
 import re
 import shutil
 from pathlib import Path
-from typing import Any
 
 from agentlab.errors import ContractError
 from agentlab.schema import Experiment
@@ -15,40 +13,6 @@ RECIPE_ENV_ALLOW = {"CODEX_HOME", "CLAUDE_CONFIG_DIR"}
 
 def looks_like_relpath(arg: str) -> bool:
     return "/" in arg or arg.startswith("./") or arg.startswith("../")
-
-
-def host_scutio_python() -> str:
-    cfg = _agentlab_config()
-    if cfg.get("scutio_python"):
-        return str(cfg["scutio_python"])
-    env = os.environ.get("SCUTIO_PYTHON")
-    if env:
-        return env
-    home = os.environ.get("SCUTIO_HOME", str(Path.home() / ".scutio"))
-    return str(Path(home) / ".venv" / "bin" / "python")
-
-
-def host_scutio_toolkit_scripts() -> str:
-    cfg = _agentlab_config()
-    if cfg.get("scutio_toolkit_scripts"):
-        return str(cfg["scutio_toolkit_scripts"])
-    py = Path(host_scutio_python())
-    inferred = py.parent.parent.parent / "skills" / "scutio-toolkit" / "scripts"
-    return str(inferred)
-
-
-def _agentlab_config() -> dict[str, Any]:
-    home = Path(os.environ.get("AGENTLAB_HOME", Path.home() / ".agentlab"))
-    path = home / "config.yaml"
-    if not path.is_file():
-        return {}
-    try:
-        import yaml
-
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return data if isinstance(data, dict) else {}
-    except OSError:
-        return {}
 
 
 def build_context(
@@ -65,13 +29,10 @@ def build_context(
     project_root: Path | None = None,
     trial_out: Path | None = None,
     program_root: Path | None = None,
-    replay: dict[str, Any] | None = None,
 ) -> dict[str, str]:
     ctx: dict[str, str] = {
         "artifact.name": exp.artifact.name,
         "experiment_root": str(experiment_root),
-        "host.scutio_python": host_scutio_python(),
-        "host.scutio_toolkit_scripts": host_scutio_toolkit_scripts(),
         "report_path": "${report_path}",
     }
     if variant_id:
@@ -95,13 +56,6 @@ def build_context(
     if program_root:
         ctx["program_root"] = str(program_root)
         ctx["installed_skill"] = str(program_root)
-    if replay:
-        lock = replay.get("lock") or {}
-        for key in ("code", "name", "as_of", "horizon", "market"):
-            if lock.get(key) is not None:
-                ctx[f"replay.{key}"] = str(lock[key])
-        if replay.get("clock"):
-            ctx["case.replay.clock"] = str(replay["clock"])
     return ctx
 
 

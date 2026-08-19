@@ -26,16 +26,8 @@ KNOWN_VARS = {
     "sandbox",
     "project_root",
     "trial_out",
-    "host.scutio_python",
-    "host.scutio_toolkit_scripts",
-    "case.replay.clock",
     "program_root",
     "report_path",
-    "replay.code",
-    "replay.name",
-    "replay.as_of",
-    "replay.horizon",
-    "replay.market",
     "installed_skill",
 }
 
@@ -183,11 +175,6 @@ def validate_experiment(exp: Experiment, root: Path, *, check_criteria_hash: boo
 
     for case in exp.cases:
         claim("case", case.id, f"cases.{case.id}")
-        if case.replay and case.replay.mode == "snapshot_replay":
-            if not case.replay.lock:
-                raise ContractError("replay_lock_incomplete", "replay.lock incomplete", path=case.id)
-            if not (case.fixtures and case.fixtures.snapshot):
-                raise ContractError("replay_missing_snapshot", "snapshot_replay needs fixtures.snapshot", path=case.id)
 
     for concern in exp.concerns:
         claim("concern", concern.id, f"concerns.{concern.id}")
@@ -255,13 +242,6 @@ def validate_experiment(exp: Experiment, root: Path, *, check_criteria_hash: boo
                     warnings.append(
                         f"relative argv {arg!r} does not exist under experiment root; left unchanged"
                     )
-
-    if exp.isolation.env_inject:
-        inj = " ".join(exp.isolation.env_inject.values())
-        if "/tmp" in inj and "SCUTIO_HOME" in exp.isolation.env_inject:
-            home = exp.isolation.env_inject["SCUTIO_HOME"]
-            if "${trial_out}" not in home and "/tmp" in home:
-                raise ContractError("scutio_home_unstable_path", "SCUTIO_HOME must not be under /tmp")
 
     criteria_path = root / exp.criteria.path
     if not criteria_path.is_file():
