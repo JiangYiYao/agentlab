@@ -64,6 +64,7 @@ skills/agentlab/
   scripts/agentlab/        implementation
   references/contract.md  experiment.yaml shape
   references/trading.md   only when the target is a trading skill
+  references/coding.md    only when the target edits a real git repo
 ```
 
 The Skill under test is not copied into your global skills folder. If the model should follow a Skill, the prompt tells it to read `${program_root}/SKILL.md`.
@@ -91,5 +92,6 @@ pytest -q
 | `run [--gate]` | Isolate, run the command, score; `--gate` fails if a required check does not hold. |
 | `report` | Write `report.md`. |
 | `promote --only-variant ID` | Update `promotion.json`. |
+| `cleanup` | After the user says this experiment is finished, remove leftover git worktrees for this run. |
 
 Not included: Windows, Docker isolation, an HTML report.

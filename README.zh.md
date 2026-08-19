@@ -71,6 +71,7 @@ skills/agentlab/
   scripts/agentlab/        实现
   references/contract.md  契约怎么写
   references/trading.md   仅当测交易 skill 时用
+  references/coding.md    仅当测编码 skill、任务跑在真实代码库时用
 ```
 
 被测的那个 Skill 不会被拷进你的全局 skills。要让模型按 Skill 做事，prompt 里写阅读 `${program_root}/SKILL.md`。
@@ -98,5 +99,6 @@ pytest -q
 | `run [--gate]` | 隔离、执行命令、打分；`--gate` 在必须满足的没满足时失败。 |
 | `report` | 写出 `report.md`。 |
 | `promote --only-variant ID` | 更新 `promotion.json`。 |
+| `cleanup` | 用户确认这次实验做完后，拆掉本次挂在测试仓上的 worktree。 |
 
 当前没有 Windows、Docker 隔离和网页报告。

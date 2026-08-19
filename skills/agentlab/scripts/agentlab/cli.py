@@ -14,6 +14,7 @@ from agentlab.errors import ContractError
 from agentlab.paths import resolve_exp_dir
 from agentlab.promote import promote
 from agentlab.report import write_report
+from agentlab.adapters.isolation.worktree import cleanup_experiment_worktrees, resolve_repo
 from agentlab.scheduler import run_experiment
 from agentlab.schema import SCHEMA_VERSION, SLUG, fingerprint_contract, trial_count
 from agentlab.secrets_scan import scan_experiment_secrets
@@ -346,6 +347,32 @@ def _cmd_report(args: argparse.Namespace) -> int:
         return 2
 
 
+def _cmd_cleanup(args: argparse.Namespace) -> int:
+    try:
+        exp_dir = _resolve_exp(args)
+        exp = _load_valid(exp_dir)
+        if exp.isolation.type != "git-worktree" or not exp.isolation.repo:
+            print("no leftover worktrees")
+            return 0
+        repo = resolve_repo(exp.isolation.repo, exp_dir)
+        if not repo.exists():
+            print("no leftover worktrees")
+            return 0
+        removed = cleanup_experiment_worktrees(repo, exp_dir)
+        if not removed:
+            print("no leftover worktrees")
+            return 0
+        for path in removed:
+            print(path)
+        return 0
+    except ContractError as exc:
+        _print_contract_error(exc)
+        return 2
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
 def _cmd_promote(args: argparse.Namespace) -> int:
     try:
         exp_dir = _resolve_exp(args)
@@ -403,6 +430,10 @@ def build_parser() -> argparse.ArgumentParser:
     promote_p.add_argument("--force", action="store_true")
     promote_p.add_argument("--copy", action="store_true")
     promote_p.set_defaults(func=_cmd_promote)
+
+    cleanup = sub.add_parser("cleanup")
+    cleanup.add_argument("--exp")
+    cleanup.set_defaults(func=_cmd_cleanup)
     return p
 
 

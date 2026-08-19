@@ -72,7 +72,9 @@ promotion:
 
 只有确定性假 command 才把 `repetitions` / `max_parallel` 写成 `1`。不要写 `wall_clock_s` / `usd` / `tokens`，除非用户要求设上限。
 
-源目录在 git 仓里、要比工作区改动时，把 `isolation` 改成 `type: git-worktree`，并写 `repo`（放测试材料的仓或源仓，相对实验根的路径）和 `freeze: HEAD`。
+被测 skill 要在真实 git 仓里做编码任务时，把 `isolation` 改成 `type: git-worktree`，`repo` 写那份仓的绝对路径，`freeze` 默认 `HEAD`。`variants/` 只拷 skill，不要整仓拷进实验。每次试验由 runner 建 worktree；测完须用户确认这次实验做完后再 `cleanup --exp`，不要自行 `git worktree add` / `remove`。没有 git、或用户只要带上未提交文件，才退回拷贝。
+
+源目录在 git 仓里、要比工作区改动、但任务并不是「在另一份仓里改代码」时，也可以用 `git-worktree`，`repo` 写该仓（绝对路径或相对实验根）。
 
 被测程序往固定家目录写产物（例如 `$SCUTIO_HOME`）时，用 `type: homedir`，需要的 `SCUTIO_*` / `AGENTLAB_*` 写在 `isolation.env_inject`。不要在 `cell.env` 里写 `HOME` / `SCUTIO_HOME` / `CODEX_HOME` / `CLAUDE_CONFIG_DIR`。
 

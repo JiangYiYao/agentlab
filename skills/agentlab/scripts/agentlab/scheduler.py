@@ -12,7 +12,12 @@ from agentlab.adapters.artifact.dir import DirArtifact
 from agentlab.adapters.evaluator.score import SYSTEM_GATES, fail_closed_for_gates, score_concerns
 from agentlab.adapters.isolation.homedir import HomedirIsolation
 from agentlab.adapters.isolation.tempdir import TempdirIsolation
-from agentlab.adapters.isolation.worktree import WorktreeIsolation, ensure_git_repo, prune_worktrees
+from agentlab.adapters.isolation.worktree import (
+    WorktreeIsolation,
+    prune_worktrees,
+    remove_worktree,
+    resolve_repo,
+)
 from agentlab.budget import BudgetTracker
 from agentlab.envmerge import inherit_flag, isolation_overlays, merge_env
 from agentlab.errors import AdapterError, BudgetExceeded, ContractError
@@ -260,18 +265,22 @@ def _skip_rest(rest: list[Trial], tracker: BudgetTracker, exp: Experiment) -> bo
 
 
 def _prune_orphans(exp: Experiment, root: Path) -> None:
-    if exp.isolation.type == "git-worktree" and exp.isolation.repo:
-        repo = Path(exp.isolation.repo)
-        if not repo.is_absolute():
-            repo = (root / repo).resolve()
-        if repo.exists():
-            prune_worktrees(repo)
     trials_dir = root / "trials"
+    if exp.isolation.type == "git-worktree" and exp.isolation.repo:
+        repo = resolve_repo(exp.isolation.repo, root)
+        if repo.exists():
+            iso = WorktreeIsolation(repo=repo)
+            with iso.worktree_lock():
+                if trials_dir.is_dir():
+                    for sandbox in trials_dir.glob("*/sandbox"):
+                        if not (sandbox.parent / "scores.json").is_file():
+                            remove_worktree(repo, sandbox)
+                prune_worktrees(repo)
+        return
     if not trials_dir.is_dir():
         return
     for sandbox in trials_dir.glob("*/sandbox"):
-        scores = sandbox.parent / "scores.json"
-        if not scores.is_file():
+        if not (sandbox.parent / "scores.json").is_file():
             shutil.rmtree(sandbox, ignore_errors=True)
 
 

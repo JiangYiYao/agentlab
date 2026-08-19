@@ -44,6 +44,66 @@ def prune_worktrees(repo: Path) -> None:
         pass
 
 
+def resolve_repo(repo: str, experiment_root: Path) -> Path:
+    path = Path(repo).expanduser()
+    if not path.is_absolute():
+        path = experiment_root / path
+    return path.resolve()
+
+
+def list_worktree_paths(repo: Path) -> list[Path]:
+    try:
+        out = subprocess.check_output(
+            ["git", "-C", str(repo), "worktree", "list", "--porcelain"],
+            text=True,
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
+        return []
+    paths: list[Path] = []
+    for line in out.splitlines():
+        if line.startswith("worktree "):
+            paths.append(Path(line[len("worktree ") :]).resolve())
+    return paths
+
+
+def experiment_worktrees(repo: Path, experiment_root: Path) -> list[Path]:
+    root = experiment_root.resolve()
+    main = repo.resolve()
+    found: list[Path] = []
+    for path in list_worktree_paths(repo):
+        if path == main:
+            continue
+        try:
+            path.relative_to(root)
+        except ValueError:
+            continue
+        found.append(path)
+    return found
+
+
+def remove_worktree(repo: Path, dest: Path) -> None:
+    try:
+        subprocess.check_call(
+            ["git", "-C", str(repo), "worktree", "remove", "--force", str(dest)]
+        )
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        prune_worktrees(repo)
+        shutil.rmtree(dest, ignore_errors=True)
+        prune_worktrees(repo)
+
+
+def cleanup_experiment_worktrees(repo: Path, experiment_root: Path) -> list[Path]:
+    """Unregister worktrees whose paths sit under this experiment. Does not touch the main checkout."""
+    removed: list[Path] = []
+    iso = WorktreeIsolation(repo=repo)
+    with iso.worktree_lock():
+        for path in experiment_worktrees(repo, experiment_root):
+            remove_worktree(repo, path)
+            removed.append(path)
+        prune_worktrees(repo)
+    return removed
+
+
 class WorktreeIsolation:
     type = "git-worktree"
 
@@ -87,10 +147,4 @@ class WorktreeIsolation:
         if self.repo is None:
             shutil.rmtree(sandbox.root, ignore_errors=True)
             return
-        try:
-            subprocess.check_call(
-                ["git", "-C", str(self.repo), "worktree", "remove", "--force", str(sandbox.root)]
-            )
-        except subprocess.CalledProcessError:
-            prune_worktrees(self.repo)
-            shutil.rmtree(sandbox.root, ignore_errors=True)
+        remove_worktree(self.repo, sandbox.root)

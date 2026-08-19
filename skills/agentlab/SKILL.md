@@ -71,7 +71,7 @@ description: >
 
 ## 对用户（实验阶段才问）
 
-进入实验计划之后，只补还缺的事实：测哪个目录、本机哪条已经能登录使用的命令、任务说明怎么喂给这条命令（默认从标准输入读；用户没确认不要猜是哪条命令）。交易向目录还要问的见 `references/trading.md`。对用户不要说「夹具」。这些问句跟在实验计划后面；改法还没谈完时不要问。不要把预算当成必问题，默认不设上限。
+进入实验计划之后，只补还缺的事实：测哪个目录、本机哪条已经能登录使用的命令、任务说明怎么喂给这条命令（默认从标准输入读；用户没确认不要猜是哪条命令）。交易向目录还要问的见 `references/trading.md`。被测 skill 要在真实代码库里做编码任务时，还要问的见 `references/coding.md`。对用户不要说「夹具」。这些问句跟在实验计划后面；改法还没谈完时不要问。不要把预算当成必问题，默认不设上限。
 
 改动会拷到这次试验自己的目录里再跑，不会装进他的全局 skills。确认标准时用几句话复述「看什么、哪几条必须满足」。不要让他打开或编辑 yaml。
 
@@ -108,7 +108,7 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 - `experiment.yaml`（按契约草稿，含其中的 repetitions / max_parallel / max_trials；不要擅自加上墙钟或金额上限）
 - `criteria.md`（按关注点分节）
 - `cases/<id>/prompt.md`
-- `variants/baseline/`：源目录完整拷贝
+- `variants/baseline/`：源目录完整拷贝（被测的是 skill 时只拷 skill，不要把任务要改的那份代码库整仓拷进来）
 - 有谈妥的改法时：`variants/<treatment-id>/` 再拷一份 baseline，只在副本上改，不要改用户的源目录。只测一个现成版本时不要编 treatment
 
 新实验目录：默认 `$AGENTLAB_HOME/experiments/<id>/`（未设 `AGENTLAB_HOME` 则为 `~/.agentlab/experiments/<id>/`）。用户指定了目录才写到别处。已有同名且已是本实验则接着用；撞车则 `<id>-2`。
@@ -119,13 +119,17 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 
 用户确认后跑 `brief --confirm-criteria`。退出 0 再 `run --gate`（他说这次只比较、先不判断能不能用，就去掉 `--gate`）。对照组已有完整结果且口径没变时不要重跑，runner 会跳过；用户要重跑对照组时加 `--force`。跑完 `report`，读 `report.md` / `promotion.json`，按关注点讲。不要自己编分数。
 
+用了 `git-worktree` 时：讲完结果后问这次实验是否已经做完。用户说做完了，再 `cleanup --exp <实验目录>`，拆掉这次挂在测试仓上的 worktree。没说做完就留着。不要在他确认前拆，也不要自己执行 `git worktree remove`。
+
 `brief` 退出 2：读错误码，你改契约或再问缺的那一项，不要把栈甩给用户。`run --gate` 退出 1：说明哪一点不满足、所以这版不能用。退出 3：你设了上限并且到了、实验没跑完。
 
-目录像交易/研报 Skill（产物在 `$SCUTIO_HOME/cache/trading`、报告有方向和动作）时，再读 `references/trading.md`。其它目录不要套那份关注点。
+目录像交易/研报 Skill（产物在 `$SCUTIO_HOME/cache/trading`、报告有方向和动作）时，再读 `references/trading.md`。被测 skill 要在真实代码库里做编码任务时，再读 `references/coding.md`。其它目录不要套那两份。
 
 ## 禁止
 
-- 自己执行 `git worktree add`（要比工作区改动时在契约里写 `isolation.type: git-worktree`，由 runner 建沙盒）
+- 自己执行 `git worktree add` / `git worktree remove`（编码任务在契约里写 `isolation.type: git-worktree`，由 runner 建；测完须用户确认做完后再 `cleanup`）
+- 把任务要改的那份代码库整仓拷进 `variants/`（只拷被测 skill）
+- 用户还没说这次实验做完，就拆掉挂在测试仓上的 worktree
 - 写用户全局 skill 目录（`~/.claude/skills` 等）
 - 为了打分去 exec 被测 command
 - 跳过 brief 宣称可跑
