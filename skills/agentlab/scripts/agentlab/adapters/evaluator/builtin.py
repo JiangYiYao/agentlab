@@ -11,6 +11,7 @@ from agentlab.adapters.evaluator.regexes import COUNTERARG_NEEDLES, RE_ACTION, R
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import expand_templates
+from agentlab.workspace import collect_changes
 
 
 def builtin_evaluate(trial: Trial, concern: Concern, exp: Experiment, ctx: dict[str, str]) -> Score:
@@ -156,34 +157,26 @@ def _line_present(
 
 def _workspace_diff(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
     meta_path = trial.trial_dir() / "meta.json"
-    snap: list[str] = []
+    snap: dict[str, str] | list[str] = {}
     if meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        snap = list(meta.get("workspace_snap") or [])
-    after = [
-        path
-        for path in _current_changed(trial, snap)
-        if _in_scope(path, concern.measure.include, concern.measure.exclude)
-    ]
+        snap = meta.get("workspace_snap") or {}
+    root = _project(trial)
+    raw = collect_changes(root, snap)
+    include = concern.measure.include
+    exclude = concern.measure.exclude
+    changes = [item for item in raw if _in_scope(item["path"], include, exclude)]
     allow = [expand_templates(x, ctx) for x in (concern.measure.allow_write or [])]
     forbid = [expand_templates(x, ctx) for x in (concern.measure.forbid_write or [])]
     bad = []
-    for path in after:
+    for item in changes:
+        path = item["path"]
         if forbid and any(fnmatch.fnmatch(path, f) or path.startswith(f.rstrip("*")) for f in forbid):
-            bad.append(path)
+            bad.append(item)
             continue
         if allow and not any(fnmatch.fnmatch(path, a) or path.startswith(a.rstrip("*")) for a in allow):
-            bad.append(path)
-    return (not bad, {"changed": after, "bad": bad})
-
-
-def _current_changed(trial: Trial, snap: list[str]) -> list[str]:
-    root = _project(trial)
-    now = []
-    for file in root.rglob("*"):
-        if file.is_file() and ".git" not in file.parts:
-            now.append(file.relative_to(root).as_posix())
-    return sorted(set(now) - set(snap))
+            bad.append(item)
+    return (not bad, {"changed": changes, "bad": bad})
 
 
 def resolve_report_text(trial: Trial, concern: Concern, ctx: dict[str, str]) -> str:

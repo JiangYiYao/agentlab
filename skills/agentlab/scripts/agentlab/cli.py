@@ -299,6 +299,13 @@ def _resolve_exp(args: argparse.Namespace) -> Path:
     return resolve_exp_dir(getattr(args, "exp", None))
 
 
+def _trial_meta_path(exp_dir: Path, run_id: str, trial_id: str) -> Path:
+    archived = exp_dir / "runs" / run_id / "trials" / trial_id / "meta.json"
+    if archived.is_file():
+        return archived
+    return exp_dir / "trials" / trial_id / "meta.json"
+
+
 def _load_valid(exp_dir: Path):
     scan_experiment_secrets(exp_dir)
     exp = load_experiment(exp_dir)
@@ -322,6 +329,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             max_parallel=args.max_parallel,
             force=args.force,
             repetitions=args.repetitions,
+            retry_failed=args.retry_failed,
+            no_reuse=args.no_reuse,
         )
         if not args.dry_expand:
             write_report(exp, exp_dir, trial_ids=[t.id for t in trials])
@@ -395,14 +404,14 @@ def _cmd_status(args: argparse.Namespace) -> int:
     if not manifest:
         print("no manifest")
         return 0
-    for key in ("planned", "ran", "reused", "skipped", "env_unusable"):
+    for key in ("planned", "ran", "reused", "skipped", "env_unusable", "retried"):
         val = manifest.get(key) or []
         print(f"{key}: {len(val) if isinstance(val, list) else val}")
     overrides = manifest.get("overrides") or {}
     if overrides:
         print(f"overrides: {overrides}")
     for tid in manifest.get("planned") or []:
-        meta_path = exp_dir / "trials" / str(tid) / "meta.json"
+        meta_path = _trial_meta_path(exp_dir, str(run_id), str(tid))
         if not meta_path.is_file():
             print(f"  {tid}: missing")
             continue
@@ -414,7 +423,8 @@ def _cmd_status(args: argparse.Namespace) -> int:
         phase = meta.get("phase") or "-"
         err = meta.get("error_code") or "-"
         pid = meta.get("pid") or "-"
-        print(f"  {tid}: phase={phase} error={err} pid={pid}")
+        extra = f" reused_from={meta['reused_from']}" if meta.get("reused_from") else ""
+        print(f"  {tid}: phase={phase} error={err} pid={pid}{extra}")
     return 0
 
 
@@ -462,6 +472,7 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dry-expand", action="store_true")
     run.add_argument("--gate", action="store_true")
     run.add_argument("--repetitions", type=int)
+    run.add_argument("--no-reuse", action="store_true")
     run.set_defaults(func=_cmd_run)
 
     report = sub.add_parser("report")

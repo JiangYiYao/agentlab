@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from agentlab.cli import main
@@ -26,6 +27,18 @@ def test_only_variant_run_does_not_count_other_trials(tmp_path: Path) -> None:
     assert "planned: 1" in report
     assert "scored: 1" in report
     assert "/ `smoke` / r1:" in report
+    archived = dest / "runs" / second / "trials"
+    assert any(archived.glob("*/scores.json"))
+
+
+def test_no_reuse_reruns(tmp_path: Path, capsys) -> None:
+    dest = make_min_exp(tmp_path / "exp")
+    assert main(["run", "--exp", str(dest), "--only-variant", "baseline"]) == 0
+    capsys.readouterr()
+    assert main(["run", "--exp", str(dest), "--only-variant", "baseline", "--no-reuse"]) == 0
+    out = capsys.readouterr().out
+    assert "reused: 0" in out
+    assert "ran: 1" in out
 
 
 def test_repetitions_override_does_not_edit_yaml(tmp_path: Path) -> None:
@@ -37,6 +50,19 @@ def test_repetitions_override_does_not_edit_yaml(tmp_path: Path) -> None:
     assert manifest is not None
     assert manifest["overrides"]["repetitions"] == 1
     assert len(manifest["planned"]) == 1
+
+
+def test_retry_failed_reruns_error_trial(tmp_path: Path, capsys) -> None:
+    dest = make_min_exp(tmp_path / "exp")
+    assert main(["run", "--exp", str(dest), "--only-variant", "baseline"]) == 0
+    capsys.readouterr()
+    meta_path = dest / "trials" / "baseline__local-cli__smoke__r1" / "meta.json"
+    meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    meta["error_code"] = "command_nonzero"
+    meta_path.write_text(json.dumps(meta), encoding="utf-8")
+    assert main(["run", "--exp", str(dest), "--only-variant", "baseline", "--retry-failed"]) == 0
+    out = capsys.readouterr().out
+    assert "retried: 1" in out
 
 
 def test_status_lists_latest_run(tmp_path: Path, capsys) -> None:

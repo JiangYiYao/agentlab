@@ -159,11 +159,26 @@ def evaluate_promotion(
         recs = []
         obj_ok = True
         for obj in [c for c in exp.concerns if c.role == "objective"]:
+            cells = _objective_cells(obj, variant.id, records, required, K, exp)
             if obj.pass_ is None:
-                recs.append({"id": obj.id, "status": "observed_only"})
+                recs.append(
+                    {
+                        "id": obj.id,
+                        "status": "observed_only",
+                        "aggregate": obj.aggregate or "mean",
+                        "cells": cells,
+                    }
+                )
                 continue
-            good = _objective_ok(obj, variant.id, records, required, K, exp)
-            recs.append({"id": obj.id, "status": "ok" if good else "not_ok"})
+            good = bool(cells) and all(c.get("ok") for c in cells)
+            recs.append(
+                {
+                    "id": obj.id,
+                    "status": "ok" if good else "not_ok",
+                    "aggregate": obj.aggregate or "mean",
+                    "cells": cells,
+                }
+            )
             obj_ok = obj_ok and good
         out[variant.id] = VariantPromotion(
             promotable=promotable,
@@ -182,23 +197,60 @@ def _baseline_id(exp: Experiment) -> str:
     return "baseline"
 
 
-def _objective_ok(obj: Concern, variant_id: str, records: list[TrialRecord], required: list[str], cases, exp: Experiment) -> bool:
-    if obj.pass_ is None:
-        return True
+def _count_unknown(
+    records: list[TrialRecord], variant_id: str, cell_id: str, case_id: str | None, concern_id: str
+) -> int:
+    n = 0
+    for rec in _match(records, variant_id, cell_id, case_id):
+        if rec.skipped:
+            continue
+        sc = rec.scores.get(concern_id)
+        if sc is None or sc.unknown:
+            n += 1
+    return n
+
+
+def _objective_cells(
+    obj: Concern,
+    variant_id: str,
+    records: list[TrialRecord],
+    required: list[str],
+    cases,
+    exp: Experiment,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for cell_id in required:
         units = cases if obj.scope == "case" else [None]
         for case in units:
-            sc = aggregate_mean(records, variant_id, cell_id, case.id if case else None, obj)
-            min_n = obj.pass_.min_n or 1
-            if sc.n < min_n:
-                return False
+            case_id = case.id if case else None
+            sc = aggregate_score(records, variant_id, cell_id, case_id, obj)
+            item: dict[str, Any] = {
+                "cell": cell_id,
+                "n": sc.n,
+                "unknown_n": _count_unknown(records, variant_id, cell_id, case_id, obj.id),
+                "value": sc.value,
+                "unknown": sc.unknown,
+            }
+            if case_id is not None:
+                item["case"] = case_id
             base = None
-            if obj.pass_.vs == "baseline":
-                base = aggregate_mean(records, _baseline_id(exp), cell_id, case.id if case else None, obj)
-            passed = compare(sc, obj.pass_, base, is_baseline=False)
-            if passed is False:
-                return False
-    return True
+            if obj.pass_ and obj.pass_.vs == "baseline":
+                base = aggregate_score(records, _baseline_id(exp), cell_id, case_id, obj)
+                item["baseline"] = base.value
+                try:
+                    if sc.value is not None and base.value is not None:
+                        item["delta"] = round(float(sc.value) - float(base.value), 12)
+                except (TypeError, ValueError):
+                    pass
+            if obj.pass_ is None:
+                item["ok"] = None
+            elif sc.n < (obj.pass_.min_n or 1):
+                item["ok"] = False
+            else:
+                passed = compare(sc, obj.pass_, base, is_baseline=False)
+                item["ok"] = passed is not False
+            out.append(item)
+    return out
 
 
 def aggregate_all_pass(
@@ -225,6 +277,48 @@ def aggregate_all_pass(
             passed = False
             value = False
     return Score(concern_id=concern.id, value=value, unknown=unknown, pass_=passed and not unknown, n=n)
+
+
+def aggregate_score(
+    records: list[TrialRecord],
+    variant_id: str,
+    cell_id: str,
+    case_id: str | None,
+    concern: Concern,
+) -> Score:
+    kind = concern.aggregate or "mean"
+    if kind == "all_pass":
+        return aggregate_all_pass(records, variant_id, cell_id, case_id, concern)
+    matched = _match(records, variant_id, cell_id, case_id)
+    vals: list[float] = []
+    unknown = False
+    for rec in matched:
+        if rec.skipped:
+            continue
+        sc = rec.scores.get(concern.id)
+        if sc is None or sc.unknown or sc.value is None:
+            unknown = True
+            continue
+        try:
+            vals.append(float(sc.value))
+        except (TypeError, ValueError):
+            unknown = True
+    if not vals:
+        return Score(concern_id=concern.id, value=None, unknown=True, n=0)
+    if kind == "min":
+        value: float | None = min(vals)
+    elif kind == "max":
+        value = max(vals)
+    elif kind == "median":
+        ordered = sorted(vals)
+        mid = len(ordered) // 2
+        if len(ordered) % 2:
+            value = ordered[mid]
+        else:
+            value = (ordered[mid - 1] + ordered[mid]) / 2
+    else:
+        value = sum(vals) / len(vals)
+    return Score(concern_id=concern.id, value=value, unknown=unknown, n=len(vals))
 
 
 def aggregate_mean(
@@ -306,6 +400,6 @@ def gate_exit_code(
         return 1
     if not promo.variants:
         return 0 if promo.system_ok else 1
-    if any(not vp.promotable for vp in promo.variants.values()):
+    if any(not vp.promotable or not vp.recommend_ship for vp in promo.variants.values()):
         return 1
     return 0

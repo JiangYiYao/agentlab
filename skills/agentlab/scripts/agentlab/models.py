@@ -89,6 +89,8 @@ class Trial:
     killed_reason: str | None = None
     skipped: bool = False
     reused: bool = False
+    retried: bool = False
+    reused_from: str | None = None
 
     def trial_dir(self) -> Path:
         return self.experiment_root / "trials" / self.id

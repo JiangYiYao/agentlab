@@ -101,7 +101,7 @@ promotion:
 
 命令不吃 `--model` 时，删掉 `model` 和参数里的 `${cell.model}`。prompt 不是 stdin 时：`mode: argv` 把说明追加到参数末尾；`mode: file` 再加 `flag`（默认 `--prompt-file`）指向 `prompt.md`。
 
-没有测试命令就不要写 `tests` 那条。`workspace_diff` 看 `${project_root}` 相对开跑前多出来的文件，写了 `allow_write` 之外的路径就不满足；它不保证 allow 里的文件一定被改到。要断言某文件出现，用 `script`。
+没有测试命令就不要写 `tests` 那条。`workspace_diff` 看这次试验相对开跑前快照的新增、修改、删除、重命名；未跟踪文件记为 `U`，不要和已入库的新增混在一起。`allow_write` 之外的改动算不满足。要断言某文件一定出现，用 `script`。
 
 ## 怎么打分
 

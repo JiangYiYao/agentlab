@@ -18,7 +18,7 @@ def render_report(
 ) -> str:
     ident = run_id or latest_run_id(root)
     planned = trial_ids if trial_ids is not None else planned_ids_for_run(root, ident)
-    records, stale = load_current_records(exp, root, trial_ids=planned)
+    records, stale = load_current_records(exp, root, trial_ids=planned, run_id=ident)
     promo = evaluate_promotion(exp, records)
     promo.ignored_stale = stale
     lines = [
@@ -45,6 +45,19 @@ def render_report(
         for obj in vp.objectives:
             status = obj.get("status") or ("ok" if obj.get("ok") else "not_ok")
             lines.append(f"  - objective `{obj['id']}`: {status}")
+            for cell in obj.get("cells") or []:
+                loc = cell.get("cell") or "-"
+                if cell.get("case"):
+                    loc = f"{loc}/{cell['case']}"
+                bits = [f"value={cell.get('value')}"]
+                if cell.get("baseline") is not None:
+                    bits.append(f"baseline={cell['baseline']}")
+                if cell.get("delta") is not None:
+                    bits.append(f"Δ={cell['delta']}")
+                bits.append(f"n={cell.get('n')}")
+                if cell.get("unknown_n"):
+                    bits.append(f"unknown={cell['unknown_n']}")
+                lines.append(f"    - {loc}: {', '.join(bits)}")
     lines.extend(["", "## 关注点", ""])
     by: dict[tuple[str, str, str], list[str]] = {}
     for rec in records:

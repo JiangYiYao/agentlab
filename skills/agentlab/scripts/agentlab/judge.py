@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 from pathlib import Path
 
-from agentlab.adapters.isolation.process import start_session_kwargs
+from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import resolve_argv
@@ -58,17 +58,25 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
     env = {k: v for k, v in os.environ.items() if not k.startswith("AGENTLAB_")}
     env.pop("AGENTLAB_VARIANT", None)
     argv = resolve_argv(list(spec.command), trial.experiment_root, {"experiment_root": str(trial.experiment_root)})
+    proc: subprocess.Popen | None = None
     try:
-        proc = subprocess.run(
+        proc = subprocess.Popen(
             argv,
             cwd=str(view),
             env=env,
-            input=stdin_text.encode(),
-            timeout=timeout_s,
-            capture_output=True,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             **start_session_kwargs(),
         )
+        stdout, stderr = proc.communicate(input=stdin_text.encode(), timeout=timeout_s)
     except subprocess.TimeoutExpired:
+        if proc is not None and proc.pid:
+            kill_process_group(proc.pid)
+            try:
+                proc.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                pass
         return Score(
             concern_id=concern.id,
             unknown=True,
@@ -76,6 +84,8 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
             evidence={"error_code": "judge_unavailable", "error": "judge timed out"},
         )
     except Exception as exc:
+        if proc is not None and proc.pid:
+            kill_process_group(proc.pid)
         return Score(
             concern_id=concern.id,
             unknown=True,
@@ -83,14 +93,24 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
             evidence={"error_code": "judge_unavailable", "error": str(exc)},
         )
     try:
-        payload = json.loads(proc.stdout.decode() or "{}")
-        score = Score.from_json(payload)
-        score.concern_id = concern.id
-        return score
+        payload = json.loads((stdout or b"").decode() or "{}")
+        return _score_from_judge(payload, concern.id)
     except Exception:
         return Score(
             concern_id=concern.id,
             unknown=True,
             pass_=False,
-            evidence={"error_code": "judge_bad_stdout", "stdout": (proc.stdout or b"")[:300].decode(errors="replace")},
+            evidence={"error_code": "judge_bad_stdout", "stdout": (stdout or b"")[:300].decode(errors="replace")},
         )
+
+
+def _score_from_judge(payload: object, concern_id: str) -> Score:
+    if not isinstance(payload, dict):
+        raise ValueError("judge stdout is not a JSON object")
+    if "pass" in payload and payload["pass"] is not None and not isinstance(payload["pass"], bool):
+        raise ValueError("pass must be boolean")
+    if "unknown" in payload and not isinstance(payload["unknown"], bool):
+        raise ValueError("unknown must be boolean")
+    score = Score.from_json(payload)
+    score.concern_id = concern_id
+    return score

@@ -162,6 +162,37 @@ def test_opt_in_treatment_skipped_unless_selected() -> None:
     assert selected.variants["fake-dirty"].promotable is False
 
 
+def test_objective_min_aggregate_not_mean() -> None:
+    exp = _exp()
+    concerns = []
+    for item in exp.concerns:
+        if item.id == "o1":
+            concerns.append(item.model_copy(update={"aggregate": "min", "pass_": item.pass_}))
+        else:
+            concerns.append(item)
+    exp = exp.model_copy(update={"concerns": concerns})
+    recs = []
+    for rec in _all_ok():
+        scores = dict(rec.scores)
+        if rec.variant_id == "treat":
+            scores["o1"] = Score(concern_id="o1", value=0.1 if rec.repeat == 1 else 0.9, unknown=False)
+        recs.append(_rec(rec.variant_id, rec.cell_id, rec.case_id, rec.repeat, scores, rec.role))
+    promo = evaluate_promotion(exp, recs)
+    assert promo.variants["treat"].recommend_ship is False
+
+
+def test_objective_pass_failure_fails_gate_exit() -> None:
+    exp = _exp()
+    recs = _all_ok()
+    for rec in recs:
+        if rec.variant_id == "treat":
+            rec.scores["o1"] = Score(concern_id="o1", value=0.1, unknown=False)
+    promo = evaluate_promotion(exp, recs)
+    assert promo.variants["treat"].promotable is True
+    assert promo.variants["treat"].recommend_ship is False
+    assert gate_exit_code(promo, gate=True, budget_incomplete=False, zero_trials=False, all_skipped=False) == 1
+
+
 def test_objective_without_pass_is_observed_only() -> None:
     exp = _exp()
     recs = _all_ok()
@@ -171,6 +202,16 @@ def test_objective_without_pass_is_observed_only() -> None:
     assert statuses["o2"] == "observed_only"
     assert "ok" not in statuses["o2"]
     assert promo.variants["treat"].recommend_ship is True
+    o1 = next(item for item in promo.variants["treat"].objectives if item["id"] == "o1")
+    assert o1["cells"]
+    cell = o1["cells"][0]
+    assert cell["value"] == 0.9
+    assert cell["baseline"] == 0.7
+    assert cell["delta"] == 0.2
+    assert cell["unknown_n"] == 0
+    o2 = next(item for item in promo.variants["treat"].objectives if item["id"] == "o2")
+    assert o2["cells"][0]["value"] == 10.0
+    assert o2["cells"][0]["ok"] is None
 
 
 def test_variant_d_min_n() -> None:

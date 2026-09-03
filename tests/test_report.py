@@ -58,7 +58,7 @@ def test_report_is_concern_by_cell(tmp_path: Path, monkeypatch) -> None:
         )
     ]
 
-    def fake_load(_exp, _root, *, trial_ids=None):
+    def fake_load(_exp, _root, *, trial_ids=None, run_id=None):
         return recs, []
 
     monkeypatch.setattr("agentlab.report.load_current_records", fake_load)
