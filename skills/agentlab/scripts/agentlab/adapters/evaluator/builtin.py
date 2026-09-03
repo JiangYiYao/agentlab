@@ -67,9 +67,11 @@ def _gold_tree(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[boo
             diffs.append(rel.as_posix())
     extra = [p for p in root.rglob("*") if p.is_file() and not _ignored(p.relative_to(root), ignore)]
     gold_rels = {p.relative_to(gold_dir).as_posix() for p in gold_files}
+    include = concern.measure.include
+    exclude = concern.measure.exclude
     for ef in extra:
         rel = ef.relative_to(root).as_posix()
-        if rel.startswith(".git/") or rel == ".git":
+        if not _in_scope(rel, include, exclude):
             continue
         if rel not in gold_rels:
             diffs.append(f"+{rel}")
@@ -78,26 +80,34 @@ def _gold_tree(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[boo
 
 def _ignored(rel: Path, ignore: set[str]) -> bool:
     text = rel.as_posix()
-    if text == ".git" or text.startswith(".git/"):
+    if ".git" in Path(text).parts:
         return True
     for pat in ignore:
-        if pat.rstrip("/") == ".git" and (text == ".git" or text.startswith(".git/")):
-            return True
         if fnmatch.fnmatch(text, pat) or fnmatch.fnmatch(rel.name, pat):
             return True
     return False
+
+
+def _in_scope(rel: str, include: list[str] | None, exclude: list[str] | None) -> bool:
+    if exclude and any(fnmatch.fnmatch(rel, pat) or rel.startswith(pat.rstrip("*")) for pat in exclude):
+        return False
+    if include:
+        return any(fnmatch.fnmatch(rel, pat) or rel.startswith(pat.rstrip("*")) for pat in include)
+    return True
 
 
 def _must_list(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
     root = _project(trial)
     keep = _read_list(trial, concern.measure.keep, ctx)
     gone = _read_list(trial, concern.measure.gone, ctx)
+    include = concern.measure.include
+    exclude = concern.measure.exclude
     missing, present = [], []
     for line in keep:
-        if not _line_present(root, line):
+        if not _line_present(root, line, include, exclude):
             missing.append(line)
     for line in gone:
-        if _line_present(root, line):
+        if _line_present(root, line, include, exclude):
             present.append(line)
     return (not missing and not present, {"missing_keep": missing, "still_present": present})
 
@@ -119,11 +129,22 @@ def _read_list(trial: Trial, spec: str | None, ctx: dict[str, str]) -> list[str]
     return out
 
 
-def _line_present(root: Path, line: str) -> bool:
-    if "/" in line or line.endswith((".java", ".kt", ".xml")):
+def _line_present(
+    root: Path,
+    line: str,
+    include: list[str] | None = None,
+    exclude: list[str] | None = None,
+) -> bool:
+    if "/" in line or Path(line).suffix:
+        rel = Path(line).as_posix()
+        if not _in_scope(rel, include, exclude):
+            return False
         return (root / line).is_file()
     for file in root.rglob("*"):
         if not file.is_file() or ".git" in file.parts:
+            continue
+        rel = file.relative_to(root).as_posix()
+        if not _in_scope(rel, include, exclude):
             continue
         try:
             if line in file.read_text(encoding="utf-8", errors="ignore"):
@@ -139,7 +160,11 @@ def _workspace_diff(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tupl
     if meta_path.is_file():
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         snap = list(meta.get("workspace_snap") or [])
-    after = _current_changed(trial, snap)
+    after = [
+        path
+        for path in _current_changed(trial, snap)
+        if _in_scope(path, concern.measure.include, concern.measure.exclude)
+    ]
     allow = [expand_templates(x, ctx) for x in (concern.measure.allow_write or [])]
     forbid = [expand_templates(x, ctx) for x in (concern.measure.forbid_write or [])]
     bad = []

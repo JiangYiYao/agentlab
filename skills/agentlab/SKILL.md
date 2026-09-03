@@ -97,6 +97,7 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 <py> <skill-dir>/scripts/cli.py brief --exp <实验目录> --confirm-criteria
 <py> <skill-dir>/scripts/cli.py run --exp <实验目录> --gate
 <py> <skill-dir>/scripts/cli.py report --exp <实验目录>
+<py> <skill-dir>/scripts/cli.py status --exp <实验目录>
 ```
 
 不要让用户去装全局 `agentlab`，也不要假设 PATH 里有它。
@@ -117,7 +118,7 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 
 产物写试验自己的目录；取数、登录、本机已经能用的工具链要沿用，不要只建一个空家目录导致取不到数。
 
-用户确认后跑 `brief --confirm-criteria`。退出 0 再 `run --gate`（他说这次只比较、先不判断能不能用，就去掉 `--gate`）。对照组已有完整结果且口径没变时不要重跑，runner 会跳过；用户要重跑对照组时加 `--force`。跑完 `report`，读 `report.md` / `promotion.json`，按关注点讲。不要自己编分数。
+用户确认后跑 `brief --confirm-criteria`。退出 0 再 `run --gate`（他说这次只比较、先不判断能不能用，就去掉 `--gate`）。对照组已有完整结果且口径没变时不要重跑，runner 会跳过；用户要重跑对照组时加 `--force`。跑完 `report`，读 `report.md` / `promotion.json`，按关注点讲。不要自己编分数。`run --only-*` 只汇总这次展开的试验，不把磁盘上其它旧结果算进来。报告里每一条都带 variant / cell / case / 第几次。没有设判定标准的关注点标成 observed_only，不要说 ok，也不要单凭它说能用。
 
 用了 `git-worktree` 时：讲完结果后问这次实验是否已经做完。用户说做完了，再 `cleanup --exp <实验目录>`，拆掉这次挂在测试仓上的 worktree。没说做完就留着。不要在他确认前拆，也不要自己执行 `git worktree remove`。
 

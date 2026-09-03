@@ -127,3 +127,27 @@ def test_cli_cleanup_after_user_would_confirm(tmp_path: Path) -> None:
     assert not sandbox.exists()
     assert repo.is_dir()
     assert sandbox.resolve() not in list_worktree_paths(repo)
+
+
+def test_nested_repo_worktree(tmp_path: Path) -> None:
+    root = _repo(tmp_path)
+    nested_src = tmp_path / "nested-src"
+    nested_src.mkdir()
+    (nested_src / "app.txt").write_text("app\n", encoding="utf-8")
+    ensure_git_repo(nested_src)
+    trial = _trial(tmp_path)
+    trial.experiment_root.mkdir()
+    iso = WorktreeIsolation(
+        repo=root,
+        freeze="HEAD",
+        nested_repos=[{"path": "repos/app", "source": str(nested_src), "freeze": "HEAD"}],
+        experiment_root=trial.experiment_root,
+    )
+    with iso.worktree_lock():
+        sandbox = iso.create(trial)
+    assert (sandbox.root / "README").is_file()
+    assert (sandbox.root / "repos" / "app" / "app.txt").read_text(encoding="utf-8") == "app\n"
+    with iso.worktree_lock():
+        iso.destroy(sandbox)
+    assert not (sandbox.root / "repos" / "app").exists()
+    assert nested_src.is_dir()

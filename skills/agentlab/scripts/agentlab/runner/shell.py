@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
-from agentlab.envfail import classify_env_error
+from agentlab.envfail import classify_env_error, env_stall_s
 from agentlab.errors import ContractError
 from agentlab.models import RunnerResult, Trial, Usage
 from agentlab.recipes import bound_command
@@ -44,6 +44,7 @@ class ShellRunner:
         deadline: float | None,
         prompt_mode: str = "stdin",
         prompt_flag: str = "--prompt-file",
+        on_start=None,
     ) -> RunnerResult:
         out = trial.outputs_dir()
         out.mkdir(parents=True, exist_ok=True)
@@ -76,6 +77,12 @@ class ShellRunner:
                     self._proc.stdin.write(stdin_data.encode())
                 if self._proc.stdin is not None:
                     self._proc.stdin.close()
+                if on_start and self._proc.pid:
+                    on_start(self._proc.pid)
+                stall_s = env_stall_s()
+                suspect_at: float | None = None
+                suspect_reason: str | None = None
+                last_size = 0
                 while True:
                     try:
                         self._proc.wait(timeout=0.5)
@@ -86,12 +93,22 @@ class ShellRunner:
                             killed = "timeout"
                             error_code = "command_timeout"
                             break
+                        size = _log_size(stdout_path, stderr_path)
                         hit = _env_hit(stdout_path, stderr_path)
                         if hit:
-                            _stop(self._proc)
-                            killed = hit
-                            error_code = "env_unusable"
-                            break
+                            if suspect_reason != hit or size > last_size:
+                                suspect_at = time.time()
+                                suspect_reason = hit
+                                last_size = size
+                            elif suspect_at is not None and time.time() - suspect_at >= stall_s:
+                                _stop(self._proc)
+                                killed = hit
+                                error_code = "env_unusable"
+                                break
+                        else:
+                            suspect_at = None
+                            suspect_reason = None
+                            last_size = size
         except FileNotFoundError:
             error_code = "bin_not_found"
             killed = None
@@ -110,8 +127,13 @@ class ShellRunner:
         code = self._proc.returncode if self._proc is not None else 127
         if code is None:
             code = 1
-        if code != 0 and error_code is None:
-            error_code = "command_nonzero"
+        if error_code is None and int(code) != 0:
+            hit = _env_hit(stdout_path, stderr_path)
+            if hit:
+                error_code = "env_unusable"
+                killed = hit
+            else:
+                error_code = "command_nonzero"
         usage = _read_usage(out / "usage.json")
         return RunnerResult(
             exit_code=int(code),
@@ -149,6 +171,16 @@ def _wait_dead(proc: subprocess.Popen, *, timeout: float = 15.0) -> None:
         proc.wait(timeout=timeout)
     except subprocess.TimeoutExpired:
         return
+
+
+def _log_size(stdout_path: Path, stderr_path: Path) -> int:
+    total = 0
+    for path in (stdout_path, stderr_path):
+        try:
+            total += path.stat().st_size
+        except OSError:
+            continue
+    return total
 
 
 def _env_hit(stdout_path: Path, stderr_path: Path) -> str | None:

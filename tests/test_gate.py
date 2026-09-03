@@ -162,6 +162,17 @@ def test_opt_in_treatment_skipped_unless_selected() -> None:
     assert selected.variants["fake-dirty"].promotable is False
 
 
+def test_objective_without_pass_is_observed_only() -> None:
+    exp = _exp()
+    recs = _all_ok()
+    promo = evaluate_promotion(exp, recs)
+    statuses = {item["id"]: item["status"] for item in promo.variants["treat"].objectives}
+    assert statuses["o1"] == "ok"
+    assert statuses["o2"] == "observed_only"
+    assert "ok" not in statuses["o2"]
+    assert promo.variants["treat"].recommend_ship is True
+
+
 def test_variant_d_min_n() -> None:
     concerns = [
         {

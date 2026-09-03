@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterable
 
 from agentlab.adapters.artifact.dir import DirArtifact
 from agentlab.adapters.evaluator.score import SYSTEM_GATES, fail_closed_for_gates, score_concerns
@@ -34,6 +35,7 @@ from agentlab.leaks import (
 from agentlab.models import Score, Trial
 from agentlab.recipes import bound_command
 from agentlab.runner.shell import ShellRunner, athlete_argv
+from agentlab.runs import new_run_id, write_manifest
 from agentlab.schema import Experiment, fingerprint_contract, fingerprint_score_basis
 from agentlab.templates import build_context
 
@@ -59,7 +61,13 @@ def _make_isolation(exp: Experiment, trial: Trial, root: Path):
     if kind == "git-worktree":
         repo = exp.isolation.repo or ""
         repo_path = Path(repo) if Path(repo).is_absolute() else (root / repo).resolve()
-        return WorktreeIsolation(repo=repo_path, freeze=exp.isolation.freeze, subdir=exp.isolation.subdir)
+        return WorktreeIsolation(
+            repo=repo_path,
+            freeze=exp.isolation.freeze,
+            subdir=exp.isolation.subdir,
+            nested_repos=list(exp.isolation.nested_repos or []),
+            experiment_root=root,
+        )
     if kind == "homedir":
         return HomedirIsolation()
     return TempdirIsolation()
@@ -77,6 +85,15 @@ def _workspace_snap(trial: Trial) -> list[str]:
 
 
 def _write_meta(trial: Trial, extra: dict[str, Any], *, score_basis: str | None = None) -> None:
+    path = trial.trial_dir() / "meta.json"
+    prev: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                prev = loaded
+        except (OSError, json.JSONDecodeError):
+            prev = {}
     meta = {
         "trial_id": trial.id,
         "variant_id": trial.variant.id,
@@ -91,13 +108,15 @@ def _write_meta(trial: Trial, extra: dict[str, Any], *, score_basis: str | None 
         "killed_reason": trial.killed_reason,
         "skipped": trial.skipped,
         "stdout": str(trial.outputs_dir() / "stdout.log"),
-        **extra,
     }
+    for key in ("pid", "pgid", "phase"):
+        if key in prev and key not in extra:
+            meta[key] = prev[key]
+    meta.update(extra)
     if trial.result:
         meta["exit_code"] = trial.result.exit_code
         meta["wall_clock_s"] = trial.result.wall_clock_s
         meta["error_code"] = trial.result.error_code or trial.error_code
-    path = trial.trial_dir() / "meta.json"
     path.write_text(json.dumps(meta, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
@@ -115,15 +134,20 @@ def _meta_current(meta: dict[str, Any], exp: Experiment) -> bool:
     return False
 
 
-def load_current_records(exp: Experiment, root: Path) -> tuple[list[TrialRecord], list[str]]:
+def load_current_records(
+    exp: Experiment, root: Path, *, trial_ids: Iterable[str] | None = None
+) -> tuple[list[TrialRecord], list[str]]:
     records: list[TrialRecord] = []
     stale: list[str] = []
     trials_dir = root / "trials"
     if not trials_dir.is_dir():
         return records, stale
+    wanted = set(trial_ids) if trial_ids is not None else None
     for meta_path in trials_dir.glob("*/meta.json"):
         meta = json.loads(meta_path.read_text(encoding="utf-8"))
         scores_path = meta_path.parent / "scores.json"
+        if wanted is not None and meta.get("trial_id") not in wanted:
+            continue
         if not _meta_current(meta, exp):
             stale.append(meta.get("trial_id", meta_path.parent.name))
             continue
@@ -158,7 +182,14 @@ def run_experiment(
     gate: bool = False,
     max_parallel: int | None = None,
     force: bool = False,
+    repetitions: int | None = None,
 ) -> tuple[int, Promotion | None, list[Trial]]:
+    overrides: dict[str, Any] = {}
+    if repetitions is not None:
+        exp = exp.model_copy(update={"repetitions": repetitions})
+        overrides["repetitions"] = repetitions
+    if max_parallel is not None:
+        overrides["max_parallel"] = max_parallel
     trials = filter_trials(
         expand(exp, root),
         only_variant=only_variant,
@@ -217,17 +248,36 @@ def run_experiment(
                 for fut in as_completed(futs):
                     fut.result()
 
-        records, stale = load_current_records(exp, root)
+        planned_ids = [t.id for t in trials]
+        run_id = new_run_id(root)
+        records, stale = load_current_records(exp, root, trial_ids=planned_ids)
         only_v = {only_variant} if only_variant else None
         only_c = {only_cell} if only_cell else None
         only_k = {only_case} if only_case else None
         promo = evaluate_promotion(exp, records, only_variants=only_v, only_cells=only_c, only_cases=only_k)
         promo.ignored_stale = stale
+        write_manifest(
+            root,
+            {
+                "run_id": run_id,
+                "planned": planned_ids,
+                "ran": [t.id for t in trials if t.result is not None and not t.reused and not t.skipped],
+                "reused": [t.id for t in trials if t.reused],
+                "skipped": [t.id for t in trials if t.skipped],
+                "env_unusable": [t.id for t in trials if t.error_code == "env_unusable"],
+                "only_variant": only_variant,
+                "only_cell": only_cell,
+                "only_case": only_case,
+                "overrides": overrides,
+                "score_basis": fingerprint_score_basis(exp),
+                "contract_hash": fingerprint_contract(exp),
+            },
+        )
         if gate:
-            (root / "promotion.json").write_text(json.dumps(promo.to_json(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-        finished = [t for t in trials if not t.skipped]
-        all_skipped = bool(trials) and all(t.skipped or (t.result is None and not t.scores) for t in trials)
-        # reload skipped flags from disk
+            promo_text = json.dumps(promo.to_json(), indent=2, ensure_ascii=False) + "\n"
+            (root / "promotion.json").write_text(promo_text, encoding="utf-8")
+            (root / "runs" / run_id / "promotion.json").write_text(promo_text, encoding="utf-8")
+        all_skipped = bool(trials) and all(t.skipped or (t.result is None and not t.scores and not t.reused) for t in trials)
         if records and all(r.skipped or all(s.unknown for s in r.scores.values()) for r in records):
             all_skipped = True
         if not records:
@@ -241,7 +291,7 @@ def run_experiment(
             all_skipped=all_skipped and gate,
             env_incomplete=env_incomplete,
         )
-        _print_summary(exp, records, promo, gate, trials=trials)
+        _print_summary(exp, records, promo, gate, trials=trials, run_id=run_id)
         return code, promo, trials
     finally:
         lock.release()
@@ -320,6 +370,7 @@ def _run_one(
         _write_scores(trial)
         return
     if not force and _reuse_completed(trial, exp):
+        trial.reused = True
         return
     trial.trial_dir().mkdir(parents=True, exist_ok=True)
     trial.outputs_dir().mkdir(parents=True, exist_ok=True)
@@ -378,6 +429,19 @@ def _run_one(
         runner = ShellRunner(exp)
         prompt_path = runner.prepare(trial, ctx)
         argv, mode, flag = athlete_argv(exp, trial, ctx)
+
+        def _on_start(pid: int) -> None:
+            try:
+                pgid = os.getpgid(pid)
+            except OSError:
+                pgid = pid
+            _write_meta(
+                trial,
+                {"pid": pid, "pgid": pgid, "phase": "running"},
+                score_basis=fingerprint_score_basis(exp),
+            )
+
+        _write_meta(trial, {"phase": "preparing"}, score_basis=fingerprint_score_basis(exp))
         with tracker.trial_watch(trial):
             trial.result = runner.run(
                 trial,
@@ -388,6 +452,7 @@ def _run_one(
                 deadline=tracker.trial_deadline(),
                 prompt_mode=mode,
                 prompt_flag=flag,
+                on_start=_on_start,
             )
             if trial.result and trial.result.error_code:
                 trial.error_code = trial.result.error_code
@@ -399,6 +464,7 @@ def _run_one(
                     trial, exp, reason=trial.killed_reason or "env_unusable"
                 )
             else:
+                _write_meta(trial, {"phase": "evaluating"}, score_basis=fingerprint_score_basis(exp))
                 trial.scores = score_concerns(trial, exp, ctx, env)
         leaks_after = snapshot_forbidden_paths()
         leaked = leak_scores(leaks_before, leaks_after)
@@ -430,7 +496,10 @@ def _run_one(
     finally:
         _write_meta(
             trial,
-            {"workspace_snap": _workspace_snap(trial) if trial.sandbox else []},
+            {
+                "workspace_snap": _workspace_snap(trial) if trial.sandbox else [],
+                "phase": "failed" if trial.error_code else "completed",
+            },
             score_basis=fingerprint_score_basis(exp),
         )
         if trial.scores:
@@ -453,15 +522,24 @@ def _print_summary(
     gate: bool,
     *,
     trials: list[Trial] | None = None,
+    run_id: str | None = None,
 ) -> None:
+    if run_id:
+        print(f"run_id: {run_id}")
+    planned = [t.id for t in (trials or [])]
+    if planned:
+        reused = sum(1 for t in trials or [] if t.reused)
+        ran = sum(1 for t in trials or [] if t.result is not None and not t.reused and not t.skipped)
+        skipped = sum(1 for t in trials or [] if t.skipped)
+        print(f"planned: {len(planned)}")
+        print(f"ran: {ran}")
+        print(f"reused: {reused}")
+        print(f"skipped: {skipped}")
     env_hits = [t for t in (trials or []) if t.error_code == "env_unusable"]
     if env_hits:
         reason = env_hits[0].killed_reason or "env_unusable"
         print(f"env_unusable: {reason}")
-        skipped = sum(1 for t in (trials or []) if t.skipped)
-        if skipped:
-            print(f"skipped_after_env_unusable: {skipped}")
-    print(f"trials_scored: {len(records)}")
+    print(f"scored: {len(records)}")
     print(f"system_ok: {promo.system_ok}")
     if not promo.variants:
         print("promotable: n/a (no treatments in universe)")

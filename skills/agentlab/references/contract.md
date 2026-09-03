@@ -72,7 +72,7 @@ promotion:
 
 只有确定性假 command 才把 `repetitions` / `max_parallel` 写成 `1`。不要写 `wall_clock_s` / `usd` / `tokens`，除非用户要求设上限。
 
-被测 skill 要在真实 git 仓里改代码时，不要用上面这份 `tempdir` 草稿，改用 `coding.md` 里的草稿。
+被测 skill 要在真实 git 仓里改代码时，不要用上面这份 `tempdir` 草稿，改用 `coding.md` 里的草稿。根仓里还有嵌套 git 仓时，在 `isolation.nested_repos` 列出 `path` / `source` / `freeze`。扫描源码时用 measure 的 `include` / `exclude`，不要扫到缓存目录。
 
 源目录在 git 仓里、要比工作区改动、但任务并不是「在另一份仓里改代码」时，也可以把 `isolation` 写成 `type: git-worktree`，`repo` 写该仓（绝对路径或相对实验根），`freeze` 默认 `HEAD`。
 

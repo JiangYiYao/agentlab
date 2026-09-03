@@ -9,7 +9,7 @@ from agentlab.schema import Experiment
 
 
 def concern_stats(exp: Experiment, records: list[TrialRecord]) -> list[dict[str, Any]]:
-    groups: dict[tuple[str, str, str], list[float]] = defaultdict(list)
+    groups: dict[tuple[str, str, str, str], list[float]] = defaultdict(list)
     for rec in records:
         if rec.skipped:
             continue
@@ -17,14 +17,15 @@ def concern_stats(exp: Experiment, records: list[TrialRecord]) -> list[dict[str,
             if score.unknown or score.value is None:
                 continue
             try:
-                groups[(cid, rec.cell_id, rec.variant_id)].append(float(score.value))
+                groups[(cid, rec.cell_id, rec.case_id, rec.variant_id)].append(float(score.value))
             except (TypeError, ValueError):
                 continue
     out = []
-    for (cid, cell, variant), vals in sorted(groups.items()):
+    for (cid, cell, case, variant), vals in sorted(groups.items()):
         item = {
             "concern": cid,
             "cell": cell,
+            "case": case,
             "variant": variant,
             "n": len(vals),
             "mean": sum(vals) / len(vals) if vals else None,
@@ -55,20 +56,21 @@ def paired_deltas(exp: Experiment, records: list[TrialRecord]) -> list[dict[str,
                 index[(cid, rec.cell_id, rec.case_id, rec.repeat, rec.variant_id)] = float(score.value)
             except (TypeError, ValueError):
                 continue
-    acc: dict[tuple[str, str, str], list[float]] = defaultdict(list)
+    acc: dict[tuple[str, str, str, str], list[float]] = defaultdict(list)
     for (cid, cell, case, repeat, variant), value in index.items():
         if variant == baseline:
             continue
         key = (cid, cell, case, repeat, baseline)
         if key not in index:
             continue
-        acc[(cid, cell, variant)].append(value - index[key])
+        acc[(cid, cell, case, variant)].append(value - index[key])
     out = []
-    for (cid, cell, variant), deltas in sorted(acc.items()):
+    for (cid, cell, case, variant), deltas in sorted(acc.items()):
         out.append(
             {
                 "concern": cid,
                 "cell": cell,
+                "case": case,
                 "variant": variant,
                 "n": len(deltas),
                 "delta_mean": sum(deltas) / len(deltas) if deltas else None,

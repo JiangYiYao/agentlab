@@ -92,11 +92,26 @@ def remove_worktree(repo: Path, dest: Path) -> None:
         prune_worktrees(repo)
 
 
-def cleanup_experiment_worktrees(repo: Path, experiment_root: Path) -> list[Path]:
+def cleanup_experiment_worktrees(
+    repo: Path, experiment_root: Path, nested_repos: list | None = None
+) -> list[Path]:
     """Unregister worktrees whose paths sit under this experiment. Does not touch the main checkout."""
     removed: list[Path] = []
-    iso = WorktreeIsolation(repo=repo)
+    iso = WorktreeIsolation(repo=repo, nested_repos=nested_repos, experiment_root=experiment_root)
     with iso.worktree_lock():
+        for spec in nested_repos or []:
+            source = getattr(spec, "source", None) or spec["source"]
+            src = Path(source).expanduser()
+            if not src.is_absolute():
+                src = (experiment_root / src).resolve()
+            else:
+                src = src.resolve()
+            if not src.exists():
+                continue
+            for path in experiment_worktrees(src, experiment_root):
+                remove_worktree(src, path)
+                removed.append(path)
+            prune_worktrees(src)
         for path in experiment_worktrees(repo, experiment_root):
             remove_worktree(repo, path)
             removed.append(path)
@@ -107,10 +122,19 @@ def cleanup_experiment_worktrees(repo: Path, experiment_root: Path) -> list[Path
 class WorktreeIsolation:
     type = "git-worktree"
 
-    def __init__(self, repo: Path | None = None, freeze: str | None = None, subdir: str = ".") -> None:
+    def __init__(
+        self,
+        repo: Path | None = None,
+        freeze: str | None = None,
+        subdir: str = ".",
+        nested_repos: list | None = None,
+        experiment_root: Path | None = None,
+    ) -> None:
         self.repo = repo
         self.freeze = freeze
         self.subdir = subdir
+        self.nested_repos = list(nested_repos or [])
+        self.experiment_root = experiment_root
 
     def lock_path(self) -> Path:
         if self.repo is None:
@@ -141,9 +165,51 @@ class WorktreeIsolation:
             prune_worktrees(self.repo)
             raise AdapterError("sandbox_create_failed", str(exc)) from exc
         project = dest if self.subdir in {".", ""} else dest / self.subdir
+        try:
+            self._add_nested(dest)
+        except AdapterError:
+            self.destroy(Sandbox(root=dest, project_root=project, home=None, worktree=True))
+            raise
         return Sandbox(root=dest, project_root=project, home=None, worktree=True)
 
+    def _add_nested(self, dest: Path) -> None:
+        for spec in self.nested_repos:
+            rel = getattr(spec, "path", None) or spec["path"]
+            source = getattr(spec, "source", None) or spec["source"]
+            freeze = getattr(spec, "freeze", None) if not isinstance(spec, dict) else spec.get("freeze")
+            nested_dest = dest / rel
+            if nested_dest.exists() and any(nested_dest.iterdir()):
+                raise AdapterError("sandbox_create_failed", f"nested dest not empty: {nested_dest}")
+            nested_dest.parent.mkdir(parents=True, exist_ok=True)
+            src = Path(source).expanduser()
+            if not src.is_absolute():
+                base = self.experiment_root or dest
+                src = (base / src).resolve()
+            else:
+                src = src.resolve()
+            if not src.exists():
+                raise AdapterError("sandbox_create_failed", f"nested source missing: {src}")
+            sha = resolve_freeze_sha(src, freeze)
+            try:
+                subprocess.check_call(
+                    ["git", "-C", str(src), "worktree", "add", "--detach", str(nested_dest), sha],
+                    timeout=60,
+                )
+            except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
+                raise AdapterError("sandbox_create_failed", str(exc)) from exc
+
     def destroy(self, sandbox: Sandbox) -> None:
+        for spec in self.nested_repos:
+            rel = getattr(spec, "path", None) or spec["path"]
+            source = getattr(spec, "source", None) or spec["source"]
+            src = Path(source).expanduser()
+            if not src.is_absolute() and self.experiment_root is not None:
+                src = (self.experiment_root / src).resolve()
+            else:
+                src = src.resolve()
+            nested_dest = sandbox.root / rel
+            if src.exists() and nested_dest.exists():
+                remove_worktree(src, nested_dest)
         if self.repo is None:
             shutil.rmtree(sandbox.root, ignore_errors=True)
             return

@@ -159,8 +159,11 @@ def evaluate_promotion(
         recs = []
         obj_ok = True
         for obj in [c for c in exp.concerns if c.role == "objective"]:
+            if obj.pass_ is None:
+                recs.append({"id": obj.id, "status": "observed_only"})
+                continue
             good = _objective_ok(obj, variant.id, records, required, K, exp)
-            recs.append({"id": obj.id, "ok": good})
+            recs.append({"id": obj.id, "status": "ok" if good else "not_ok"})
             obj_ok = obj_ok and good
         out[variant.id] = VariantPromotion(
             promotable=promotable,

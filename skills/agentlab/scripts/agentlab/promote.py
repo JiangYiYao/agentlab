@@ -5,6 +5,7 @@ import shutil
 from pathlib import Path
 
 from agentlab.gate import evaluate_promotion
+from agentlab.runs import planned_ids_for_run
 from agentlab.scheduler import load_current_records
 from agentlab.schema import Experiment
 
@@ -17,7 +18,7 @@ def promote(
     force: bool = False,
     copy: bool = False,
 ) -> tuple[int, Path]:
-    records, stale = load_current_records(exp, root)
+    records, stale = load_current_records(exp, root, trial_ids=planned_ids_for_run(root))
     promo = evaluate_promotion(exp, records, only_variants={only_variant})
     promo.ignored_stale = stale
     dest = root / "promotion.json"

@@ -114,6 +114,8 @@ class Measure(BaseModel):
     to: str | None = None
     judge: JudgeSpec | None = None
     model: str | None = None
+    include: list[str] | None = None
+    exclude: list[str] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -205,12 +207,19 @@ class Fixtures(StrictModel):
     snapshot: str | None = None
 
 
+class NestedRepo(StrictModel):
+    path: str
+    source: str
+    freeze: str | None = None
+
+
 class Isolation(StrictModel):
     type: Literal["git-worktree", "homedir", "tempdir"]
     subdir: str = "."
     inherit_host_identity: bool = True
     repo: str | None = None
     freeze: str | None = None
+    nested_repos: list[NestedRepo] | None = None
     worktree_add_serial: bool = True
     keep_sandbox: bool = False
     keep_on_fail: bool = True

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import shutil
 import sys
@@ -15,6 +16,7 @@ from agentlab.paths import resolve_exp_dir
 from agentlab.promote import promote
 from agentlab.report import write_report
 from agentlab.adapters.isolation.worktree import cleanup_experiment_worktrees, resolve_repo
+from agentlab.runs import latest_run_id, load_manifest
 from agentlab.scheduler import run_experiment
 from agentlab.schema import SCHEMA_VERSION, SLUG, fingerprint_contract, trial_count
 from agentlab.secrets_scan import scan_experiment_secrets
@@ -308,7 +310,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     try:
         exp_dir = _resolve_exp(args)
         exp = _load_valid(exp_dir)
-        code, _promo, _trials = run_experiment(
+        code, _promo, trials = run_experiment(
             exp,
             exp_dir,
             only_variant=args.only_variant,
@@ -319,7 +321,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
             gate=args.gate,
             max_parallel=args.max_parallel,
             force=args.force,
+            repetitions=args.repetitions,
         )
+        if not args.dry_expand:
+            write_report(exp, exp_dir, trial_ids=[t.id for t in trials])
         return code
     except ContractError as exc:
         _print_contract_error(exc)
@@ -334,7 +339,7 @@ def _cmd_report(args: argparse.Namespace) -> int:
         exp_dir = _resolve_exp(args)
         exp = _load_valid(exp_dir)
         dest = Path(args.o).expanduser().resolve() if args.o else None
-        path = write_report(exp, exp_dir, dest)
+        path = write_report(exp, exp_dir, dest, run_id=getattr(args, "run", None))
         print(path)
         if not path.is_file() or path.stat().st_size == 0:
             return 2
@@ -358,7 +363,9 @@ def _cmd_cleanup(args: argparse.Namespace) -> int:
         if not repo.exists():
             print("no leftover worktrees")
             return 0
-        removed = cleanup_experiment_worktrees(repo, exp_dir)
+        removed = cleanup_experiment_worktrees(
+            repo, exp_dir, nested_repos=list(exp.isolation.nested_repos or [])
+        )
         if not removed:
             print("no leftover worktrees")
             return 0
@@ -371,6 +378,44 @@ def _cmd_cleanup(args: argparse.Namespace) -> int:
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return 2
+
+
+def _cmd_status(args: argparse.Namespace) -> int:
+    try:
+        exp_dir = _resolve_exp(args)
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+    run_id = getattr(args, "run", None) or latest_run_id(exp_dir)
+    if not run_id:
+        print("no runs")
+        return 0
+    print(f"run_id: {run_id}")
+    manifest = load_manifest(exp_dir, run_id)
+    if not manifest:
+        print("no manifest")
+        return 0
+    for key in ("planned", "ran", "reused", "skipped", "env_unusable"):
+        val = manifest.get(key) or []
+        print(f"{key}: {len(val) if isinstance(val, list) else val}")
+    overrides = manifest.get("overrides") or {}
+    if overrides:
+        print(f"overrides: {overrides}")
+    for tid in manifest.get("planned") or []:
+        meta_path = exp_dir / "trials" / str(tid) / "meta.json"
+        if not meta_path.is_file():
+            print(f"  {tid}: missing")
+            continue
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            print(f"  {tid}: unreadable")
+            continue
+        phase = meta.get("phase") or "-"
+        err = meta.get("error_code") or "-"
+        pid = meta.get("pid") or "-"
+        print(f"  {tid}: phase={phase} error={err} pid={pid}")
+    return 0
 
 
 def _cmd_promote(args: argparse.Namespace) -> int:
@@ -416,10 +461,12 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--keep-sandbox", action="store_true")
     run.add_argument("--dry-expand", action="store_true")
     run.add_argument("--gate", action="store_true")
+    run.add_argument("--repetitions", type=int)
     run.set_defaults(func=_cmd_run)
 
     report = sub.add_parser("report")
     report.add_argument("--exp")
+    report.add_argument("--run")
     report.add_argument("--format", dest="fmt", default="md")
     report.add_argument("-o")
     report.set_defaults(func=_cmd_report)
@@ -434,6 +481,11 @@ def build_parser() -> argparse.ArgumentParser:
     cleanup = sub.add_parser("cleanup")
     cleanup.add_argument("--exp")
     cleanup.set_defaults(func=_cmd_cleanup)
+
+    status = sub.add_parser("status")
+    status.add_argument("--exp")
+    status.add_argument("--run")
+    status.set_defaults(func=_cmd_status)
     return p
 
 

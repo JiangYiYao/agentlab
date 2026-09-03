@@ -57,6 +57,7 @@ concerns:
     measure:
       type: workspace_diff
       allow_write: ["<相对 ${project_root} 的路径或 glob>"]
+      exclude: ["**/.agents/**", "**/build/**"]
     pass: { op: "==", vs: value, value: true }
     aggregate: all_pass
   - id: tests
@@ -85,6 +86,11 @@ isolation:
   repo: <任务仓的绝对路径>
   freeze: HEAD
   inherit_host_identity: true
+  # 根仓 worktree 里没有的嵌套 git 仓（相对 ${project_root}）：
+  # nested_repos:
+  #   - path: repos/foo
+  #     source: <那份仓的绝对路径>
+  #     freeze: HEAD
 budget:
   max_trials: 24
   max_parallel: 4
@@ -107,7 +113,7 @@ promotion:
 
 不要为了先试环境去完整跑一遍编码任务。`brief` 只说明契约合法，不说明这条命令能在隔离 worktree 里干活。
 
-runner 会盯 stdout/stderr。出现工作区未信任、未登录、模型不存在、未知参数时，立刻杀掉该次试验，并取消还没开的试验（退出 3）。已经开跑、同样卡住的那几个也会被同一条规则停掉。这不是改法失败。
+runner 会盯 stdout/stderr。工作区未信任、未登录、额度/不可用、未知参数：进程已经失败，或匹配后不再有新输出、像在空等，才杀掉该次并取消还没开的试验（退出 3）。进程后来正常退出 0，不当成环境失败。这不是改法失败。
 
 对人说明是环境问题；修信任/登录/参数后再跑。环境还没跑通时，不要把整批试验铺开。
 

@@ -68,8 +68,20 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
             capture_output=True,
             **start_session_kwargs(),
         )
+    except subprocess.TimeoutExpired:
+        return Score(
+            concern_id=concern.id,
+            unknown=True,
+            pass_=False,
+            evidence={"error_code": "judge_unavailable", "error": "judge timed out"},
+        )
     except Exception as exc:
-        return Score(concern_id=concern.id, unknown=True, pass_=False, evidence={"error": str(exc)})
+        return Score(
+            concern_id=concern.id,
+            unknown=True,
+            pass_=False,
+            evidence={"error_code": "judge_unavailable", "error": str(exc)},
+        )
     try:
         payload = json.loads(proc.stdout.decode() or "{}")
         score = Score.from_json(payload)

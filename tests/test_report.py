@@ -58,11 +58,12 @@ def test_report_is_concern_by_cell(tmp_path: Path, monkeypatch) -> None:
         )
     ]
 
-    def fake_load(_exp, _root):
+    def fake_load(_exp, _root, *, trial_ids=None):
         return recs, []
 
     monkeypatch.setattr("agentlab.report.load_current_records", fake_load)
     text = render_report(exp, tmp_path)
-    assert "关注点 × 格子" in text
-    assert "gold @ local-cli" in text
+    assert "## 关注点" in text
+    assert "gold @ local-cli / smoke" in text
+    assert "`treat` / `local-cli` / `smoke` / r1:" in text
     assert "综合分" not in text

@@ -96,8 +96,9 @@ pytest -q
 |---|---|
 | `brief` | 检查契约。`--confirm-criteria` 写入 `criteria.sha256`。 |
 | `run [--gate]` | 隔离、执行命令、打分；`--gate` 在必须满足的没满足时失败。 |
-| `report` | 写出 `report.md`。 |
+| `report` | 按最近一次运行写出 `report.md`（`--run` 指定另一次）。 |
 | `promote --only-variant ID` | 更新 `promotion.json`。 |
 | `cleanup` | 用户确认这次实验做完后，拆掉本次挂在测试仓上的 worktree。 |
+| `status` | 看最近一次运行：planned/ran/reused/skipped，以及每个试验进行到哪。 |
 
 当前没有 Windows、Docker 隔离和网页报告。

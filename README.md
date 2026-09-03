@@ -89,8 +89,9 @@ pytest -q
 |---|---|
 | `brief` | Check the contract. `--confirm-criteria` writes `criteria.sha256`. |
 | `run [--gate]` | Isolate, run the command, score; `--gate` fails if a required check does not hold. |
-| `report` | Write `report.md`. |
+| `report` | Write `report.md` for the latest run (`--run` to pick another). |
 | `promote --only-variant ID` | Update `promotion.json`. |
 | `cleanup` | After the user says this experiment is finished, remove leftover git worktrees for this run. |
+| `status` | Show the latest run: planned/ran/reused/skipped and each trial's phase. |
 
 Not included: Windows, Docker isolation, an HTML report.
