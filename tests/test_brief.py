@@ -4,6 +4,7 @@ import shutil
 from pathlib import Path
 
 from agentlab.cli import main
+from agentlab.schema import judge_call_count, llm_rubric_count
 from agentlab.validate import load_experiment
 from tests.helpers import make_min_exp
 
@@ -15,6 +16,17 @@ def test_brief_fixture_runnable(tmp_path: Path) -> None:
     brief = (dest / "brief.md").read_text(encoding="utf-8")
     assert "RUNNABLE: yes" in brief
     assert "contract_hash:" in brief
+    assert "裁判次数: 0" in brief
+
+
+def test_brief_prints_judge_calls(tmp_path: Path, capsys) -> None:
+    dest = make_min_exp(tmp_path / "exp")
+    assert main(["brief", "--exp", str(dest)]) == 0
+    out = capsys.readouterr().out
+    exp = load_experiment(dest)
+    assert llm_rubric_count(exp) == 0
+    assert judge_call_count(exp) == 0
+    assert "judge_calls: 0 (0 llm_rubric × 2 trials)" in out
 
 
 def test_brief_confirm_criteria(tmp_path: Path) -> None:

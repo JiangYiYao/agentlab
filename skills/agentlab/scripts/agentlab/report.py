@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agentlab.diffreport import write_run_diff
 from agentlab.gate import evaluate_promotion
 from agentlab.runs import latest_run_id, planned_ids_for_run, runs_dir
 from agentlab.scheduler import load_current_records
@@ -29,11 +30,17 @@ def render_report(
         f"- run_id: {ident or '(none)'}",
         f"- planned: {len(planned) if planned is not None else 'all on disk'}",
         f"- scored: {len(records)}",
-        "",
-        "## 晋级",
-        "",
-        f"- system_ok: {promo.system_ok}",
     ]
+    if ident and (runs_dir(root) / ident / "diff.html").is_file():
+        lines.append(f"- 代码改动阅读: `runs/{ident}/diff.html`（用浏览器打开）")
+    lines.extend(
+        [
+            "",
+            "## 晋级",
+            "",
+            f"- system_ok: {promo.system_ok}",
+        ]
+    )
     if not promo.variants:
         lines.append("- 无 treatment 在当前这次运行里")
     for vid, vp in promo.variants.items():
@@ -104,6 +111,9 @@ def write_report(
     trial_ids: list[str] | None = None,
 ) -> Path:
     ident = run_id or latest_run_id(root)
+    planned = trial_ids if trial_ids is not None else planned_ids_for_run(root, ident)
+    if ident and planned:
+        write_run_diff(root, ident, planned)
     text = render_report(exp, root, run_id=ident, trial_ids=trial_ids)
     path = dest or (root / "report.md")
     path.write_text(text, encoding="utf-8")

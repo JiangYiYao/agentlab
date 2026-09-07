@@ -93,7 +93,7 @@ def archive_trial(root: Path, run_id: str, trial_id: str, *, reused_from: str | 
     if out_src.is_dir():
         out_dest = dest / "outputs"
         out_dest.mkdir(exist_ok=True)
-        for name in ("stdout.log", "stderr.log"):
+        for name in ("stdout.log", "stderr.log", "diff.html", "diff.json", "workspace.diff"):
             log = out_src / name
             if log.is_file():
                 shutil.copy2(log, out_dest / name)

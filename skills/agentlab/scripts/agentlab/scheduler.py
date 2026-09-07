@@ -32,6 +32,7 @@ from agentlab.leaks import (
     path_in_trees,
     snapshot_forbidden_paths,
 )
+from agentlab.diffreport import write_run_diff, write_trial_diff
 from agentlab.models import Score, Trial
 from agentlab.recipes import bound_command
 from agentlab.runner.shell import ShellRunner, athlete_argv
@@ -355,7 +356,8 @@ def run_experiment(
             all_skipped=all_skipped and gate,
             env_incomplete=env_incomplete,
         )
-        _print_summary(exp, records, promo, gate, trials=trials, run_id=run_id)
+        write_run_diff(root, run_id, planned_ids)
+        _print_summary(exp, records, promo, gate, trials=trials, run_id=run_id, root=root)
         return code, promo, trials
     finally:
         lock.release()
@@ -555,6 +557,10 @@ def _run_one(
                 )
             else:
                 _write_meta(trial, {"phase": "evaluating"}, score_basis=fingerprint_score_basis(exp))
+                try:
+                    write_trial_diff(trial)
+                except Exception:
+                    pass
                 trial.scores = score_concerns(trial, exp, ctx, env)
         leaks_after = snapshot_forbidden_paths()
         leaked = leak_scores(leaks_before, leaks_after)
@@ -584,6 +590,11 @@ def _run_one(
         trial.error_code = "eval_failed"
         trial.scores = fail_closed_for_gates(trial, exp, reason=str(exc))
     finally:
+        if trial.sandbox is not None and not trial.reused:
+            try:
+                write_trial_diff(trial)
+            except Exception:
+                pass
         extra = {"phase": "failed" if trial.error_code else "completed"}
         if run_id:
             extra["run_id"] = run_id
@@ -615,9 +626,12 @@ def _print_summary(
     *,
     trials: list[Trial] | None = None,
     run_id: str | None = None,
+    root: Path | None = None,
 ) -> None:
     if run_id:
         print(f"run_id: {run_id}")
+    if run_id and root and (root / "runs" / run_id / "diff.html").is_file():
+        print(f"diff: runs/{run_id}/diff.html")
     planned = [t.id for t in (trials or [])]
     if planned:
         reused = sum(1 for t in trials or [] if t.reused)

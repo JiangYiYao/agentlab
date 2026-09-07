@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentlab.judge import JUDGE_PREAMBLE, criteria_section
+from agentlab.judge import JUDGE_PREAMBLE, criteria_for_judge, criteria_section
 
 
 def test_preamble_mentions_score_json() -> None:
@@ -15,3 +15,7 @@ def test_criteria_section_slices(tmp_path: Path) -> None:
     text = criteria_section(tmp_path, "latency")
     assert "A" in text
     assert "label-align" not in text
+    full = criteria_for_judge(tmp_path, "latency")
+    assert "Criteria" in full
+    assert "A" in full
+    assert "label-align" not in full

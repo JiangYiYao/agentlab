@@ -399,3 +399,11 @@ def fingerprint_score_basis(exp: Experiment) -> str:
 
 def trial_count(exp: Experiment) -> int:
     return len(exp.variants) * len(exp.matrix.cells) * len(exp.cases) * exp.repetitions
+
+
+def llm_rubric_count(exp: Experiment) -> int:
+    return sum(1 for c in exp.concerns if c.measure.type == "llm_rubric")
+
+
+def judge_call_count(exp: Experiment) -> int:
+    return llm_rubric_count(exp) * trial_count(exp)
