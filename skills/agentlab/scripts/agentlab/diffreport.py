@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -88,11 +89,30 @@ def write_trial_diff(trial: Trial) -> Path | None:
     }
     (out / "diff.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     (out / "workspace.diff").write_text(_bundle_to_diff(bundle), encoding="utf-8")
+    _write_after_files(out / "after", trial.sandbox.project_root, bundle)
     title = f"{trial.variant.id} / {trial.cell.id} / {trial.case.id} / r{trial.repeat}"
     html = render_trial_html(trial.id, title, bundle)
     dest = out / "diff.html"
     dest.write_text(html, encoding="utf-8")
     return dest
+
+
+def _write_after_files(after_root: Path, project_root: Path, bundle: DiffBundle) -> None:
+    if after_root.exists():
+        shutil.rmtree(after_root)
+    after_root.mkdir(parents=True, exist_ok=True)
+    for item in bundle.files:
+        src = project_root / item.path
+        if item.status == "D" or not src.is_file():
+            continue
+        dest = after_root / item.path
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            if src.stat().st_size > MAX_FILE_BYTES:
+                continue
+            shutil.copy2(src, dest)
+        except OSError:
+            continue
 
 
 def _bundle_to_diff(bundle: DiffBundle) -> str:

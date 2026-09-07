@@ -16,7 +16,7 @@ def test_brief_fixture_runnable(tmp_path: Path) -> None:
     brief = (dest / "brief.md").read_text(encoding="utf-8")
     assert "RUNNABLE: yes" in brief
     assert "contract_hash:" in brief
-    assert "裁判次数: 0" in brief
+    assert "0 次" in brief
 
 
 def test_brief_prints_judge_calls(tmp_path: Path, capsys) -> None:

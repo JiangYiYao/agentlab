@@ -23,6 +23,7 @@ from agentlab.schema import (
     SLUG,
     fingerprint_contract,
     judge_call_count,
+    judge_mode,
     llm_rubric_count,
     trial_count,
 )
@@ -212,7 +213,7 @@ def _write_brief_md(path: Path, exp, contract_hash: str, runnable: bool, warning
 {chr(10).join(cells)}
 - 用例: {cases}
 - 试验次数: {trial_count(exp)}
-- 裁判次数: {judge_call_count(exp)}（{llm_rubric_count(exp)} 条 LLM 分 × {trial_count(exp)} 次试验；各评各的，不并排）
+- 裁判: {judge_mode(exp)}；{judge_call_count(exp)} 次（{_judge_call_detail(exp)}）
 - 并行: max_parallel={exp.budget.max_parallel}；墙钟/金额/token 上限: {_budget_limits_label(exp)}
 - 隔离: {exp.isolation.type}
 - 明确不做: 自动演化、写用户全局 skills
@@ -229,6 +230,17 @@ def _write_brief_md(path: Path, exp, contract_hash: str, runnable: bool, warning
     )
 
 
+def _judge_call_detail(exp) -> str:
+    if llm_rubric_count(exp) == 0:
+        return f"0 llm_rubric × {trial_count(exp)} trials"
+    if judge_mode(exp) == "compare_case":
+        return (
+            f"compare_case: {len(exp.cases)} cases × {len(exp.matrix.cells)} cells "
+            f"× {exp.repetitions} reps"
+        )
+    return f"{llm_rubric_count(exp)} llm_rubric × {trial_count(exp)} trials"
+
+
 def _budget_cap(exp) -> str:
     if exp.budget.usd is not None:
         return str(exp.budget.usd)
@@ -242,10 +254,9 @@ def _print_summary(*, runnable: bool, exp, warnings: list[str], errors: list[str
     if exp is not None:
         print(f"contract_hash: {fingerprint_contract(exp)}")
         print(f"trials: {trial_count(exp)}")
-        print(
-            f"judge_calls: {judge_call_count(exp)} "
-            f"({llm_rubric_count(exp)} llm_rubric × {trial_count(exp)} trials)"
-        )
+        if llm_rubric_count(exp):
+            print(f"judge_mode: {judge_mode(exp)}")
+        print(f"judge_calls: {judge_call_count(exp)} ({_judge_call_detail(exp)})")
         print(f"budget_usd_cap: {_budget_cap(exp)}")
     for err in errors:
         print(f"error: {err}")

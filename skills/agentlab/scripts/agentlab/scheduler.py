@@ -32,6 +32,7 @@ from agentlab.leaks import (
     path_in_trees,
     snapshot_forbidden_paths,
 )
+from agentlab.compare_judge import run_compare_judges
 from agentlab.diffreport import write_run_diff, write_trial_diff
 from agentlab.models import Score, Trial
 from agentlab.recipes import bound_command
@@ -322,6 +323,7 @@ def run_experiment(
                     fut.result()
                     _refresh_manifest()
 
+        run_compare_judges(exp, root, trials, run_id)
         records, stale = load_current_records(exp, root, trial_ids=planned_ids, run_id=run_id)
         only_v = {only_variant} if only_variant else None
         only_c = {only_cell} if only_cell else None

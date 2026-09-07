@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from agentlab.compare_judge import load_compare_results
 from agentlab.diffreport import write_run_diff
 from agentlab.gate import evaluate_promotion
 from agentlab.runs import latest_run_id, planned_ids_for_run, runs_dir
@@ -65,6 +66,25 @@ def render_report(
                 if cell.get("unknown_n"):
                     bits.append(f"unknown={cell['unknown_n']}")
                 lines.append(f"    - {loc}: {', '.join(bits)}")
+    compares = load_compare_results(root, ident)
+    if compares:
+        lines.extend(["", "## 并排对比", ""])
+        for item in compares:
+            case = item.get("case_id") or "-"
+            cell = item.get("cell_id") or "-"
+            mapping = item.get("mapping") or {}
+            ranking = item.get("ranking") or []
+            named = [mapping.get(lab, lab) for lab in ranking]
+            lines.append(f"- `{case}` / `{cell}` / r{item.get('repeat') or 1}: ranking={named or '-'}")
+            identical = item.get("identical") or []
+            if identical:
+                lines.append(f"  - identical: {identical}")
+            usable = item.get("usable") or {}
+            if usable:
+                shown = {mapping.get(k, k): v for k, v in usable.items()}
+                lines.append(f"  - usable: {shown}")
+            if item.get("error"):
+                lines.append(f"  - error: {item['error']}")
     lines.extend(["", "## 关注点", ""])
     by: dict[tuple[str, str, str], list[str]] = {}
     for rec in records:

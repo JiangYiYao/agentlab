@@ -4,7 +4,7 @@ from agentlab.adapters.evaluator.builtin import builtin_evaluate
 from agentlab.adapters.evaluator.script import run_script_measure
 from agentlab.judge import spawn_judge
 from agentlab.models import Score, Trial
-from agentlab.schema import Experiment
+from agentlab.schema import Experiment, judge_mode
 
 SYSTEM_GATES = ["__isolation_leak__", "__wrong_skill_tree__"]
 
@@ -39,6 +39,8 @@ def score_concerns(
     for concern in exp.concerns:
         t = concern.measure.type
         if t == "llm_rubric":
+            if judge_mode(exp) == "compare_case":
+                continue
             timeout = (concern.measure.timeout_s or (concern.judge.timeout_s if concern.judge else None) or (exp.judge.timeout_s if exp.judge else 180))
             out.append(spawn_judge(trial, concern, exp, int(timeout)))
         elif t == "script":

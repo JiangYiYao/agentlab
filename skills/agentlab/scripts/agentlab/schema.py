@@ -67,6 +67,7 @@ class JudgeSpec(StrictModel):
     prompt: PromptSpec = Field(default_factory=PromptSpec)
     timeout_s: int | None = 180
     inherit_host_identity: bool = True
+    mode: Literal["per_trial", "compare_case"] | None = None
 
 
 class PassRule(StrictModel):
@@ -391,7 +392,7 @@ def fingerprint_score_basis(exp: Experiment) -> str:
         "cases": [c.model_dump(mode="json") for c in exp.cases],
         "isolation": exp.isolation.model_dump(mode="json"),
         "baseline": {"id": baseline.id, "path": baseline.path},
-        "judge": exp.judge.model_dump(mode="json") if exp.judge else None,
+        "judge": _judge_basis(exp.judge),
     }
     canonical = json.dumps(obj, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     return "sha256:" + hashlib.sha256(canonical.encode("utf-8")).hexdigest()
@@ -405,5 +406,25 @@ def llm_rubric_count(exp: Experiment) -> int:
     return sum(1 for c in exp.concerns if c.measure.type == "llm_rubric")
 
 
+def judge_mode(exp: Experiment) -> str:
+    if exp.judge and exp.judge.mode:
+        return exp.judge.mode
+    return "per_trial"
+
+
 def judge_call_count(exp: Experiment) -> int:
-    return llm_rubric_count(exp) * trial_count(exp)
+    n_rubric = llm_rubric_count(exp)
+    if n_rubric == 0:
+        return 0
+    if judge_mode(exp) == "compare_case":
+        return len(exp.cases) * len(exp.matrix.cells) * exp.repetitions
+    return n_rubric * trial_count(exp)
+
+
+def _judge_basis(spec: JudgeSpec | None) -> dict[str, Any] | None:
+    if spec is None:
+        return None
+    data = spec.model_dump(mode="json")
+    if data.get("mode") in (None, "per_trial"):
+        data.pop("mode", None)
+    return data

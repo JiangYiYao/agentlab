@@ -10,6 +10,8 @@
 
 `criteria.md` 按关注点分节（`## <concern.id>`）。用户口头确认标准后，用 `brief --confirm-criteria` 写入 `criteria.sha256`，不要手填哈希。
 
+有 `llm_rubric` 时，`judge.command` 必填。`judge.mode` 为 `per_trial`（默认，每次试验各评各的）或 `compare_case`（同一用例收齐各份 `workspace.diff` 后并排评一次）。不要用 `swap_order` 冒充并排。
+
 被测命令的第一个词必须在 PATH 上（`brief` 会查）。模型配置可省略，沿用该命令本机已有的登录。
 
 ## 最小可跑草稿

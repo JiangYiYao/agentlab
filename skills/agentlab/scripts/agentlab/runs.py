@@ -97,6 +97,9 @@ def archive_trial(root: Path, run_id: str, trial_id: str, *, reused_from: str | 
             log = out_src / name
             if log.is_file():
                 shutil.copy2(log, out_dest / name)
+        after_src = out_src / "after"
+        if after_src.is_dir():
+            shutil.copytree(after_src, out_dest / "after", dirs_exist_ok=True)
     meta_path = dest / "meta.json"
     if meta_path.is_file() and reused_from:
         try:
