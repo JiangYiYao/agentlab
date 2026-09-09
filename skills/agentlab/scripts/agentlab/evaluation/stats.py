@@ -4,7 +4,7 @@ import math
 from collections import defaultdict
 from typing import Any
 
-from agentlab.gate import TrialRecord
+from agentlab.evaluation.gate import TrialRecord
 from agentlab.schema import Experiment
 
 

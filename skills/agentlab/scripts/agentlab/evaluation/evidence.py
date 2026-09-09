@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 
 from agentlab.models import Trial
-from agentlab.provenance import atomic_json
+from agentlab.records.provenance import atomic_json
 from agentlab.schema import Experiment
 
 

@@ -1,19 +1,18 @@
 from __future__ import annotations
 
-import json
-import math
 from contextlib import ExitStack
 import subprocess
 import time
 from pathlib import Path
 
 from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
-from agentlab.envfail import classify_env_error, env_stall_s
+from agentlab.execution.envfail import classify_env_error, env_stall_s
 from agentlab.models import RunnerResult, Trial, Usage
 from agentlab.recipes import bound_command
 from agentlab.schema import Experiment
 from agentlab.templates import expand_templates, resolve_argv
-from agentlab.provenance import atomic_json
+from agentlab.records.provenance import atomic_json
+from agentlab.records.reader import read_usage
 
 
 class ShellRunner:
@@ -151,7 +150,7 @@ class ShellRunner:
                 killed = hit
             else:
                 error_code = "command_nonzero"
-        usage = _read_usage(out / "usage.json")
+        usage = read_usage(out / "usage.json")
         return RunnerResult(
             exit_code=int(code),
             stdout_path=stdout_path,
@@ -217,28 +216,3 @@ def athlete_argv(exp: Experiment, trial: Trial, ctx: dict[str, str]) -> tuple[li
     mode = prompt.mode if prompt else "stdin"
     flag = (prompt.flag if prompt else None) or "--prompt-file"
     return argv, mode, flag
-
-
-def _read_usage(path: Path) -> Usage:
-    if not path.is_file():
-        return Usage()
-    try:
-        data = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
-        return Usage()
-    if not isinstance(data, dict):
-        return Usage()
-    for key in ("tokens_in", "tokens_out", "usd"):
-        value = data.get(key)
-        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0):
-            return Usage()
-    tokens_in = data.get("tokens_in")
-    tokens_out = data.get("tokens_out")
-    usd = data.get("usd")
-    return Usage(
-        tokens_in=tokens_in,
-        tokens_out=tokens_out,
-        usd=usd,
-        tokens_unknown=tokens_in is None and tokens_out is None,
-        usd_unknown=usd is None,
-    )

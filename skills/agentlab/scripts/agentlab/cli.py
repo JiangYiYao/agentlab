@@ -13,10 +13,10 @@ import yaml
 
 from agentlab.errors import ContractError
 from agentlab.paths import resolve_exp_dir
-from agentlab.promote import promote
-from agentlab.report import write_report
-from agentlab.runs import latest_run_id, load_manifest
-from agentlab.scheduler import run_experiment
+from agentlab.evaluation.promote import promote
+from agentlab.reporting.report import write_report
+from agentlab.records.runs import latest_run_id, load_manifest
+from agentlab.execution.scheduler import run_experiment
 from agentlab.schema import (
     SCHEMA_VERSION,
     SLUG,
@@ -27,8 +27,8 @@ from agentlab.schema import (
     trial_count,
 )
 from agentlab.secrets_scan import scan_experiment_secrets
-from agentlab.stats import preview_cost
-from agentlab.storage import cleanup as cleanup_storage, usage as storage_usage
+from agentlab.evaluation.stats import preview_cost
+from agentlab.records.storage import cleanup as cleanup_storage, usage as storage_usage
 from agentlab.validate import load_experiment, load_raw, validate_experiment, write_criteria_hash
 
 HINTS = {
@@ -484,14 +484,14 @@ def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="agentlab")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    brief = sub.add_parser("brief")
+    brief = sub.add_parser("brief", help="Validate the experiment and confirm agreed criteria")
     brief.add_argument("--exp")
     brief.add_argument("--init-from")
     brief.add_argument("--write-baseline", action="store_true")
     brief.add_argument("--confirm-criteria", action="store_true")
     brief.set_defaults(func=_cmd_brief)
 
-    run = sub.add_parser("run")
+    run = sub.add_parser("run", help="Execute trials, reusing matching results by default")
     run.add_argument("--exp")
     run.add_argument("--max-parallel", type=int)
     run.add_argument("--force", action="store_true")
@@ -515,31 +515,31 @@ def build_parser() -> argparse.ArgumentParser:
     rescore.set_defaults(func=_cmd_run, rescore=True, no_reuse=False, force=False, retry_failed=False,
                         keep_sandbox=False, dry_expand=False, gate=True, max_parallel=None, repetitions=None)
 
-    report = sub.add_parser("report")
+    report = sub.add_parser("report", help="Build reports and audit pages from saved results")
     report.add_argument("--exp")
     report.add_argument("--run")
     report.add_argument("--format", dest="fmt", default="md")
     report.add_argument("-o")
     report.set_defaults(func=_cmd_report)
 
-    promote_p = sub.add_parser("promote")
+    promote_p = sub.add_parser("promote", help="Check a candidate; copy it to the source only with --copy")
     promote_p.add_argument("--exp")
     promote_p.add_argument("--only-variant", required=True)
     promote_p.add_argument("--force", action="store_true")
     promote_p.add_argument("--copy", action="store_true")
     promote_p.set_defaults(func=_cmd_promote)
 
-    cleanup = sub.add_parser("cleanup")
+    cleanup = sub.add_parser("cleanup", help="Remove retained workspaces and archived caches")
     cleanup.add_argument("--exp")
     cleanup.add_argument("--dry-run", action="store_true", help="preview workspaces and archived caches to remove")
     cleanup.set_defaults(func=_cmd_cleanup)
 
-    storage = sub.add_parser("storage")
+    storage = sub.add_parser("storage", help="Show archive and cache disk usage")
     storage.add_argument("--exp")
     storage.add_argument("--json", action="store_true")
     storage.set_defaults(func=_cmd_storage)
 
-    status = sub.add_parser("status")
+    status = sub.add_parser("status", help="Inspect progress and saved run summaries")
     status.add_argument("--exp")
     status.add_argument("--run")
     status.set_defaults(func=_cmd_status)

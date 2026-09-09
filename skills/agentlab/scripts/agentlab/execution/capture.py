@@ -4,13 +4,9 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from agentlab.provenance import atomic_json, digest, dependency_context, command_files
-from agentlab.storage import _blob, execution_path, link_view
+from agentlab.records.provenance import atomic_json, digest, dependency_context, command_files
+from agentlab.records.storage import archive_file, execution_path, link_view
 from agentlab.templates import expand_templates
-
-
-def trial_anchor(trial_id: str) -> str:
-    return 'trial-' + digest(trial_id).split(':')[1][:16]
 
 
 def capture_inputs(trial, exp, program: Path, prompt: Path) -> None:
@@ -23,7 +19,7 @@ def capture_inputs(trial, exp, program: Path, prompt: Path) -> None:
         if not src.is_file():
             missing.append({'path': rel, 'source': str(src), 'reason': 'missing or not a regular file'})
             return
-        blob, entry = _blob(root, src)
+        blob, entry = archive_file(root, src)
         link_view(blob, dest / rel)
         files[rel] = {**entry, 'source': str(src)}
 
@@ -107,7 +103,7 @@ def capture_trace(trial, exp) -> None:
             if not src.resolve().is_relative_to(out.resolve()):
                 entries.append({'path': rel, 'missing': True, 'reason': 'external symlink not followed'})
                 continue
-            blob, entry = _blob(root, src)
+            blob, entry = archive_file(root, src)
             link_view(blob, dest / 'trace' / 'files' / rel)
             entries.append({'path': rel, **entry, 'missing': False})
     atomic_json(dest / 'trace' / 'manifest.json', {

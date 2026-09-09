@@ -3,14 +3,12 @@ from __future__ import annotations
 import time
 from agentlab.errors import BudgetExceeded
 
-from agentlab.adapters.evaluator.builtin import builtin_evaluate
-from agentlab.adapters.evaluator.script import run_script_measure
-from agentlab.judge import spawn_judge
-from agentlab.models import Score, Trial
+from agentlab.evaluation.builtin import builtin_evaluate
+from agentlab.evaluation.script import run_script_measure
+from agentlab.evaluation.judge import spawn_judge
+from agentlab.models import Score, Trial, SYSTEM_GATES
 from agentlab.schema import Experiment, judge_mode
-from agentlab.provenance import measurement_basis
-
-SYSTEM_GATES = ["__isolation_leak__", "__wrong_skill_tree__"]
+from agentlab.records.provenance import measurement_basis
 
 
 def fail_closed_for_gates(trial: Trial, exp: Experiment, *, reason: str) -> list[Score]:

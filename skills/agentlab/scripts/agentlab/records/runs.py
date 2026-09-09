@@ -6,9 +6,10 @@ import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
-from agentlab.provenance import atomic_json
+from agentlab.records.provenance import atomic_json, tree_digest
 from agentlab.schema import Experiment
-from agentlab.storage import archive_outputs
+from agentlab.models import Trial
+from agentlab.records.storage import archive_outputs
 
 
 def with_run_repetitions(exp: Experiment, manifest: dict[str, Any] | None) -> Experiment:
@@ -136,3 +137,65 @@ def archive_trial(root: Path, run_id: str, trial_id: str, *, reused_from: str | 
         except (OSError, json.JSONDecodeError):
             pass
     return dest
+
+
+def write_trial_meta(trial: Trial, extra: dict[str, Any], *, score_basis: str | None = None) -> None:
+    path = trial.trial_dir() / "meta.json"
+    prev: dict[str, Any] = {}
+    if path.is_file():
+        try:
+            loaded = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                prev = loaded
+        except (OSError, json.JSONDecodeError):
+            prev = {}
+    meta = dict(prev)
+    meta.update(
+        {
+            "trial_id": trial.id,
+            "execution_id": trial.execution_id,
+            "execution_basis": trial.execution_basis,
+            "measurement_basis": trial.measurement_basis,
+            "compare_basis": trial.compare_basis,
+            "evaluation_events": trial.evaluation_events,
+            "stage_times": trial.stage_times,
+            "evidence_digest": tree_digest(trial.outputs_dir() / "evidence"),
+            "sandbox": str(trial.sandbox.root) if trial.sandbox else None,
+            "project_root": str(trial.sandbox.project_root) if trial.sandbox else None,
+            "variant_id": trial.variant.id,
+            "cell_id": trial.cell.id,
+            "case_id": trial.case.id,
+            "repeat": trial.repeat,
+            "role": trial.variant.role,
+            "contract_hash": trial.contract_hash,
+            "score_basis": score_basis,
+            "freeze_sha": trial.freeze_sha,
+            "error_code": trial.error_code,
+            "killed_reason": trial.killed_reason,
+            "skipped": trial.skipped,
+            "stdout": str(trial.outputs_dir() / "stdout.log"),
+        }
+    )
+    meta.update(extra)
+    if "workspace_snap" in extra:
+        meta.pop("pid", None)
+        meta.pop("pgid", None)
+    if trial.result:
+        meta["exit_code"] = trial.result.exit_code
+        meta["wall_clock_s"] = trial.result.wall_clock_s
+        meta["usage"] = vars(trial.result.usage)
+        meta["error_code"] = trial.error_code or trial.result.error_code
+        meta["execution_error"] = trial.result.error_code
+    atomic_json(path, meta)
+
+
+def write_trial_scores(trial: Trial) -> None:
+    payload = [s.to_json() for s in trial.scores]
+    path = trial.trial_dir() / "scores.json"
+    if path.is_file():
+        try:
+            if json.loads(path.read_text()) == payload:
+                return
+        except (OSError, ValueError):
+            pass
+    atomic_json(path, payload)

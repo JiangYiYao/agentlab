@@ -6,7 +6,7 @@ import shutil
 from pathlib import Path
 from typing import Any
 
-from agentlab.judge import (
+from agentlab.evaluation.judge import (
     criteria_for_judge,
     extract_json_payload,
     _case_prompt,
@@ -14,14 +14,14 @@ from agentlab.judge import (
     _write_judge_logs,
 )
 from agentlab.models import Score, Trial
-from agentlab.runs import archive_trial, runs_dir
+from agentlab.records.runs import archive_trial, runs_dir, write_trial_scores
 from agentlab.schema import Concern, Experiment, judge_mode
 from agentlab.templates import resolve_argv
-from agentlab.evidence import copy_evidence, describe_materials
-from agentlab.runner.evaluation import judge_command
+from agentlab.evaluation.evidence import copy_evidence, describe_materials
+from agentlab.evaluation.process import judge_command
 from agentlab.errors import BudgetExceeded
-from agentlab.provenance import digest, measurement_basis
-from agentlab.storage import link_view, freeze_compare
+from agentlab.records.provenance import digest, measurement_basis
+from agentlab.records.storage import link_view, freeze_compare
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -66,7 +66,7 @@ def run_compare_judges(exp: Experiment, root: Path, trials: list[Trial], run_id:
                                         reason=result.get("error") if evaluation_status == "not_run" else None)
         _apply_compare_scores(group, concerns, result)
         for trial in group:
-            _write_trial_scores(trial)
+            write_trial_scores(trial)
             if run_id:
                 archive_trial(root, run_id, trial.id, reused_from=trial.reused_from if trial.reused else None)
         written.append(dest / "result.json")
@@ -296,37 +296,3 @@ def _score_from_label(concern: Concern, blob: dict[str, Any], result: dict[str, 
         pass_=False,
         evidence={"error_code": "judge_bad_stdout", "compare": True},
     )
-
-
-def _write_trial_scores(trial: Trial) -> None:
-    payload = [s.to_json() for s in trial.scores]
-    trial.trial_dir().mkdir(parents=True, exist_ok=True)
-    (trial.trial_dir() / "scores.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
-    )
-
-
-def load_compare_results(root: Path, run_id: str | None) -> list[dict[str, Any]]:
-    ident = run_id
-    bases = []
-    if ident:
-        bases.append(runs_dir(root) / ident / "compare")
-    bases.append(root / "trials" / ".compare")
-    out: list[dict[str, Any]] = []
-    seen: set[str] = set()
-    for base in bases:
-        if not base.is_dir():
-            continue
-        for path in sorted(base.glob("*/result.json")):
-            key = path.parent.name
-            if key in seen:
-                continue
-            try:
-                data = json.loads(path.read_text(encoding="utf-8"))
-            except (OSError, json.JSONDecodeError):
-                continue
-            if isinstance(data, dict):
-                data["path"] = str(path)
-                out.append(data)
-                seen.add(key)
-    return out

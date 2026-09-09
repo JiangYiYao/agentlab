@@ -9,7 +9,7 @@ from typing import Any
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import expand_templates
-from agentlab.workspace import collect_changes
+from agentlab.execution.workspace import collect_changes
 
 
 def builtin_evaluate(trial: Trial, concern: Concern, exp: Experiment, ctx: dict[str, str]) -> Score:

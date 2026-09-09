@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 
 from agentlab.cli import main
-from agentlab.flock import FileLock
-from agentlab.runs import latest_run_id
-from agentlab.storage import usage
+from agentlab.records.flock import FileLock
+from agentlab.records.runs import latest_run_id
+from agentlab.records.storage import usage
 from tests.test_lifecycle import add_judge, experiment, manifest, python_command, run, save
 
 

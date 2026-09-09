@@ -8,11 +8,11 @@ import yaml
 
 from agentlab.adapters.isolation.worktree import ensure_git_repo
 from agentlab.cli import main
-from agentlab.diffreport import collect_patches, render_trial_html, write_run_diff, write_trial_diff
+from agentlab.reporting.changes import collect_patches, render_trial_html, write_run_diff, write_trial_diff
 from agentlab.models import Sandbox, Trial
-from agentlab.runs import latest_run_id
+from agentlab.records.runs import latest_run_id
 from agentlab.schema import Case, Cell, Variant
-from agentlab.workspace import hash_snapshot
+from agentlab.execution.workspace import hash_snapshot
 from tests.helpers import make_min_exp
 
 

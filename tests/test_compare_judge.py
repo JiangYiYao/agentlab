@@ -7,9 +7,9 @@ from pathlib import Path
 import yaml
 
 from agentlab.cli import main
-from agentlab.compare_judge import _blind_mapping, _compare_stdin
+from agentlab.evaluation.compare import _blind_mapping, _compare_stdin
 from agentlab.models import Trial
-from agentlab.runs import latest_run_id
+from agentlab.records.runs import latest_run_id
 from agentlab.schema import Case, Cell, Variant, judge_call_count, judge_mode
 from agentlab.validate import load_experiment as load_exp
 from tests.helpers import make_min_exp

@@ -307,3 +307,29 @@ def test_unknown_template_var(tmp_path: Path) -> None:
     with pytest.raises(ContractError) as ei:
         _validate(tmp_path, data)
     assert ei.value.code == "unknown_template_var"
+
+
+@pytest.mark.parametrize('location', ['inline', 'experiment', 'home'])
+def test_validation_and_execution_share_recipe_resolution(tmp_path, monkeypatch, location):
+    from agentlab.recipes import bound_command
+    data = _data(tmp_path)
+    data['matrix']['cells'][0] = {'id': 'local-cli', 'recipe': 'local', 'args': ['--version']}
+    recipe = {'command': ['true']}
+    if location == 'inline':
+        data['recipes'] = {'local': recipe}
+    root = _exp_dir(tmp_path, data)
+    home = tmp_path / 'agentlab-home'
+    monkeypatch.setenv('AGENTLAB_HOME', str(home))
+    if location != 'inline':
+        folder = (root if location == 'experiment' else home) / 'recipes'
+        folder.mkdir(parents=True)
+        (folder / 'local.yaml').write_text(yaml.safe_dump(recipe))
+    # A lower-priority home recipe must not override an inline or local one.
+    if location != 'home':
+        (home / 'recipes').mkdir(parents=True)
+        (home / 'recipes/local.yaml').write_text(yaml.safe_dump({'command': ['false']}))
+    exp = parse_experiment(data)
+    validate_experiment(exp, root)
+    command, resolved = bound_command(exp, exp.matrix.cells[0], exp.cases[0], root)
+    assert command == ['true', '--version']
+    assert resolved.command == ['true']

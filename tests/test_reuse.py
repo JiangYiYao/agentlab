@@ -7,7 +7,7 @@ import yaml
 
 from agentlab.cli import main
 from agentlab.schema import fingerprint_score_basis
-from agentlab.scheduler import load_current_records
+from agentlab.records.reader import load_current_records
 from agentlab.validate import load_experiment, load_raw
 from tests.helpers import make_min_exp
 

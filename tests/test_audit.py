@@ -8,11 +8,12 @@ from urllib.parse import unquote
 
 import pytest
 
-from agentlab.audit import Audit, PREVIEW_BYTES, score_anchor, write_audit
+from agentlab.reporting.scoring import Audit, write_audit
+from agentlab.reporting.common import PREVIEW_BYTES, score_anchor
 from agentlab.cli import main
-from agentlab.report import write_report
-from agentlab.runner.evaluation import run_process
-from agentlab.runs import latest_run_id
+from agentlab.reporting.report import write_report
+from agentlab.evaluation.process import run_process
+from agentlab.records.runs import latest_run_id
 from agentlab.schema import Experiment
 from tests.test_lifecycle import add_judge, experiment, manifest, python_command, run
 

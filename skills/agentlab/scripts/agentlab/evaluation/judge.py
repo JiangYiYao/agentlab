@@ -9,8 +9,8 @@ from pathlib import Path
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import resolve_argv
-from agentlab.evidence import copy_evidence, describe_materials
-from agentlab.runner.evaluation import judge_command
+from agentlab.evaluation.evidence import copy_evidence, describe_materials
+from agentlab.evaluation.process import judge_command
 from agentlab.errors import BudgetExceeded
 
 JUDGE_PREAMBLE = """你是测评裁判，不是被测程序。

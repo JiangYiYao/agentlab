@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agentlab.gate import TrialRecord, evaluate_promotion, gate_exit_code
+from agentlab.evaluation.gate import TrialRecord, evaluate_promotion, gate_exit_code
 from agentlab.models import Score
 from agentlab.schema import Experiment
 

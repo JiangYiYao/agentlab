@@ -5,7 +5,7 @@
 ## 还要问清的
 
 - 任务要改的是哪一份 git 仓（绝对路径）。没有仓、或只要带上当时未提交的文件，才退回拷贝。
-- freeze 钉哪一次提交（默认 `HEAD`）。不要猜。
+- freeze 使用哪一次提交（默认 `HEAD`），有明确指定时沿用指定值。
 - 本机哪条已经能登录的命令、任务说明怎么喂给它（stdin / 参数 / 文件）。命令若要模型 id，问清本机这条命令认的那个，写进 `matrix.cells[].model`，用 `${cell.model}` 传，不要猜。
 - 若用 LLM 裁判：哪条命令、**形态**（独立审查还是并排对比）、以及次数（写成数字）。用户只点模型名不够。同一道题比几份 skill 稿时提案并排对比（`judge.mode: compare_case`）；要方差、各评各的才用独立审查。
 
@@ -20,89 +20,52 @@
 
 不要把 skill 装进全局 skills。prompt 写：阅读并遵循 `${program_root}/SKILL.md`，在 `${project_root}` 里改代码。
 
-## 草稿
+## 在通用草稿上增加编码配置
 
-把 `<...>` 换成这次的值。通用字段含义见 `contract.md`。
+以 [contract.md](contract.md) 为基础，保留版本、用例和命令等通用字段，将 isolation 替换为：
 
 ```yaml
-schema_version: 1
-id: <slug>
-name: <短名>
-artifact:
-  type: dir
-  name: <slug>
-  layout: sidecar
-  source_path: <被测 skill 的绝对路径>
-criteria:
-  path: criteria.md
-variants:
-  - id: baseline
-    role: baseline
-    path: variants/baseline
-    created_by: import
-  - id: <treatment-id>
-    role: treatment
-    path: variants/<treatment-id>
-    parent: baseline
-    created_by: skill-hypothesis
-    hypothesis:
-      change: "<改了 skill 的哪一段>"
-      bet: "<赌代码改动会更好的点>"
-      hurt: "<可能改坏或改多的点>"
-      falsify: "<怎样算证伪>"
-concerns:
-  - id: no-extra-files
-    intent: "<只许改这些路径；用户原话>"
-    role: gate
-    scope: case
-    measure:
-      type: workspace_diff
-      allow_write: ["<相对 ${project_root} 的路径或 glob>"]
-      exclude: ["**/.agents/**", "**/build/**"]
-    pass: { op: "==", vs: value, value: true }
-    aggregate: all_pass
-  - id: tests
-    intent: "<有测试就跑；没有这条就删>"
-    role: gate
-    scope: case
-    measure:
-      type: script
-      result: exit_code
-      command: ["<用户确认的测试命令>"]
-      cwd: sandbox
-    pass: { op: "==", vs: value, value: true }
-    aggregate: all_pass
-matrix:
-  cells:
-    - id: local-cli
-      model: <本机这条命令认的模型 id；命令不吃模型则整行删掉>
-      command: ["<用户确认的二进制>", "--model", "${cell.model}"]
-      prompt: { mode: stdin }
-cases:
-  - id: main
-    path: cases/main
-    prompt_file: prompt.md
-    require_exit_0: true
 isolation:
   type: git-worktree
   repo: <任务仓的绝对路径>
   freeze: HEAD
   keep_sandbox: true
   inherit_host_identity: true
-  # 根仓 worktree 里没有的嵌套 git 仓（相对 ${project_root}）：
+  # 根仓 worktree 里没有的嵌套 git 仓：
   # nested_repos:
   #   - path: repos/foo
   #     source: <那份仓的绝对路径>
   #     freeze: HEAD
-budget:
-  max_trials: 24
-  max_parallel: 4
-repetitions: 3
-promotion:
-  all_cells_must_pass: true
 ```
 
-命令不吃 `--model` 时，删掉 `model` 和参数里的 `${cell.model}`。prompt 不是 stdin 时：`mode: argv` 把说明追加到参数末尾；`mode: file` 再加 `flag`（默认 `--prompt-file`）指向 `prompt.md`。
+按本次要求增加关注点，例如限制修改范围和执行测试：
+
+```yaml
+concerns:
+  - id: no-extra-files
+    intent: "<允许修改的范围，以用户要求为准>"
+    role: gate
+    scope: case
+    measure:
+      type: workspace_diff
+      allow_write: ["<相对 project_root 的路径或 glob>"]
+      exclude: ["**/build/**"]
+    pass: { op: "==", vs: value, value: true }
+    aggregate: all_pass
+  - id: tests
+    intent: "<本次需要通过的测试>"
+    role: gate
+    scope: case
+    measure:
+      type: script
+      result: exit_code
+      command: ["<已确认的测试命令>"]
+      cwd: sandbox
+    pass: { op: "==", vs: value, value: true }
+    aggregate: all_pass
+```
+
+这些是示例，不是每个代码任务的固定标准。扫描源码按需要配置 `include` / `exclude`；不要把缓存当源码。模型、prompt 模式、样本与并发按通用计划配置。
 
 没有测试命令就不要写 `tests` 那条。`workspace_diff` 看这次试验相对开跑前快照的新增、修改、删除、重命名；未跟踪文件记为 `U`，不要和已入库的新增混在一起。`allow_write` 之外的改动算不满足。要断言某文件一定出现，用 `script`。
 
@@ -134,10 +97,4 @@ runner 会盯 stdout/stderr。工作区未信任、未登录、额度/不可用�
 
 每次试验由 runner 对 `isolation.repo` 做 `worktree add`，命令 cwd 就是这份 checkout。不要自己 `git worktree add`。
 
-讲完结果后问：这次实验是否已经做完。用户说做完了，再：
-
-```text
-<py> <skill-dir>/scripts/cli.py cleanup --exp <实验目录>
-```
-
-拆掉这次挂在该仓上的 worktree，不动主工作区。没说做完就留着。
+用户明确结束实验或要求清理后，按 [storage.md](storage.md) 先 `cleanup --dry-run` 再 `cleanup`。沿用已有授权，不重复询问同一范围。尚有待排查的现场继续保留；主工作区不自动还原。

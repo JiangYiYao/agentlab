@@ -7,10 +7,10 @@ import pytest
 from pydantic import ValidationError
 
 from agentlab.cli import main
-from agentlab.execution_report import ExecutionAudit, write_execution_audit
-from agentlab.runs import latest_run_id
+from agentlab.reporting.execution import ExecutionAudit, write_execution_audit
+from agentlab.records.runs import latest_run_id
 from agentlab.schema import TraceSpec
-from agentlab.storage import execution_path
+from agentlab.records.storage import execution_path
 from tests.test_lifecycle import experiment, run, save, python_command, manifest
 
 TID = 'treatment__local-cli__smoke__r1'
@@ -148,7 +148,7 @@ def test_legacy_inputs_are_not_reconstructed_from_live_skill(tmp_path):
 
 
 def test_snapshot_does_not_recursively_copy_its_archive(tmp_path):
-    from agentlab.execution_audit import capture_inputs
+    from agentlab.execution.capture import capture_inputs
     from agentlab.models import Trial
     from agentlab.schema import Experiment
     root, raw = experiment(tmp_path)

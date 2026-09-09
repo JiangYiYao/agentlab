@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import shutil
+import subprocess
+from agentlab.adapters.isolation.worktree import resolve_repo
 from pathlib import Path
 
 from agentlab.schema import Experiment, Concern
@@ -124,3 +126,16 @@ def atomic_json(path: Path, payload) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + "\n", encoding="utf-8")
     tmp.replace(path)
+
+
+def freeze_experiment(exp: Experiment, root: Path) -> Experiment:
+    exp = exp.model_copy(deep=True)
+    if exp.isolation.type == "git-worktree" or any(c.isolation and c.isolation.type == "git-worktree" for c in exp.cases):
+        repo = resolve_repo(exp.isolation.repo or "", root)
+        exp.isolation.repo = str(repo)
+        exp.isolation.freeze = subprocess.check_output(["git", "-C", str(repo), "rev-parse", exp.isolation.freeze or "HEAD"], text=True).strip()
+        for nested in exp.isolation.nested_repos or []:
+            source = resolve_repo(nested.source, root)
+            nested.source = str(source)
+            nested.freeze = subprocess.check_output(["git", "-C", str(source), "rev-parse", nested.freeze or "HEAD"], text=True).strip()
+    return exp

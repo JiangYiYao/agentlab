@@ -11,9 +11,9 @@ from typing import Any
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import resolve_argv, expand_templates
-from agentlab.runner.evaluation import run_process
-from agentlab.evidence import file_digest
-from agentlab.provenance import atomic_json
+from agentlab.evaluation.process import run_process
+from agentlab.evaluation.evidence import file_digest
+from agentlab.records.provenance import atomic_json
 
 
 def run_script_measure(

@@ -8,7 +8,7 @@ from pathlib import Path
 import yaml
 
 from agentlab.cli import main
-from agentlab.envfail import classify_env_error
+from agentlab.execution.envfail import classify_env_error
 from tests.helpers import make_min_exp
 
 

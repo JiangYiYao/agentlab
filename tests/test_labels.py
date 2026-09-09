@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agentlab.adapters.evaluator.builtin import _counterarg, _extract_labels, _section_present
+from agentlab.evaluation.builtin import _counterarg, _extract_labels, _section_present
 from agentlab.schema import Concern, Measure
 
 SAMPLE = """# 报告
@@ -31,7 +31,7 @@ def test_label_and_counterarg_on_real_shape() -> None:
         measure=Measure(type="counterarg_inline", source="unused"),
     )
     # bypass file by monkeypatching resolve? call internals
-    from agentlab.adapters.evaluator import builtin as b
+    from agentlab.evaluation import builtin as b
 
     class T:
         pass

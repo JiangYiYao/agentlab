@@ -3,16 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 import json
 
-from agentlab.compare_judge import load_compare_results
-from agentlab.diffreport import write_run_diff
-from agentlab.gate import evaluate_promotion, Promotion, VariantPromotion
-from agentlab.runs import latest_run_id, planned_ids_for_run, runs_dir, load_manifest
-from agentlab.scheduler import load_current_records
+from agentlab.reporting.changes import write_run_diff
+from agentlab.evaluation.gate import evaluate_promotion, Promotion, VariantPromotion
+from agentlab.records.runs import latest_run_id, planned_ids_for_run, runs_dir, load_manifest
+from agentlab.records.reader import load_current_records, load_compare_results
 from agentlab.schema import Experiment
-from agentlab.stats import concern_stats, paired_deltas
-from agentlab.audit import relative_url, score_anchor, write_audit
-from agentlab.execution_audit import trial_anchor
-from agentlab.execution_report import write_execution_audit
+from agentlab.evaluation.stats import concern_stats, paired_deltas
+from agentlab.reporting.scoring import write_audit
+from agentlab.reporting.common import relative_url, score_anchor, trial_anchor
+from agentlab.reporting.execution import write_execution_audit
 
 
 def render_report(

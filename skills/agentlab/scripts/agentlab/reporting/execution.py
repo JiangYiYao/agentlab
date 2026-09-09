@@ -6,14 +6,13 @@ import html
 import math
 from pathlib import Path
 
-from agentlab.audit import Audit, CSS, JS, _json, relative_url, score_anchor
-from agentlab.execution_audit import trial_anchor
-from agentlab.provenance import atomic_json
-from agentlab.storage import execution_path
-from agentlab.gate import compare_op
+from agentlab.reporting.common import ArchivePage, CSS, JS, _json, relative_url, score_anchor, trial_anchor
+from agentlab.records.provenance import atomic_json
+from agentlab.records.storage import execution_path
+from agentlab.evaluation.gate import compare_op
 
 
-class ExecutionAudit(Audit):
+class ExecutionAudit(ArchivePage):
     def __init__(self, root: Path, run_id: str):
         super().__init__(root, run_id)
         self.path = self.run / 'execution.html'

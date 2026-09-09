@@ -79,13 +79,22 @@ Re-evaluation requires the relevant output material to have been saved. See the 
 
 The detailed guides are currently in Chinese:
 
+- [Experiment workflow](skills/agentlab/references/workflow.md): planning, call counts and preparation.
 - [Experiment configuration](skills/agentlab/references/contract.md): cases, commands, scoring, and budgets.
 - [Coding tasks](skills/agentlab/references/coding.md): testing changes in real Git repositories.
 - [Execution and re-evaluation](skills/agentlab/references/lifecycle.md): reuse, evidence retention, retries, and compatibility.
 - [Storage and cleanup](skills/agentlab/references/storage.md): shared archives, disk usage, cache cleanup, and older experiments.
 - [Auditing scores](skills/agentlab/references/audit.md): judge inputs, score provenance, and assessment comparisons.
 - [Investigating execution](skills/agentlab/references/execution-audit.md): pre-launch inputs, exported traces, baseline comparisons, and limits on causal conclusions.
-- [Skill instructions](skills/agentlab/SKILL.md): the complete workflow followed by the agent.
+- [Skill instructions](skills/agentlab/SKILL.md): request routing, command entry points and reporting requirements.
+
+## Script organization
+
+The agent uses two files: `scripts/ensure_python.py` prepares Python, then `scripts/cli.py` handles every experiment operation through subcommands. You do not need to find or invoke the other Python files. Keep the whole Skill folder when installing it.
+
+The internal `scripts/agentlab/` package groups code into `execution/` (scheduling, trials and capture), `evaluation/` (scoring and decisions), `records/` (history and storage), `reporting/` (reports and audits), `adapters/` (workspace isolation and artifact copying), and `compat/` (legacy extraction rules). Configuration models and validation stay at the package root.
+
+Reports read archived records without importing the execution scheduler. Both audit pages share archive and page helpers; validation and execution share command and recipe resolution. The supported interface is the CLI; internal Python import paths can change. Experiment configuration, CLI arguments and archived run layouts are preserved by this reorganization.
 
 ## Local development
 

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import hashlib
-import os
 import re
 import shutil
 from pathlib import Path
@@ -11,7 +10,8 @@ import yaml
 from pydantic import ValidationError
 
 from agentlab.errors import ContractError
-from agentlab.schema import Experiment, Recipe, trial_count
+from agentlab.schema import Experiment, trial_count
+from agentlab.recipes import load_recipe, resolve_command
 
 TEMPLATE = re.compile(r"\$\{([^}]+)\}")
 KNOWN_VARS = {
@@ -48,26 +48,9 @@ def load_experiment(root: Path) -> Experiment:
     return parse_experiment(load_raw(root))
 
 
-def _recipe_search_paths(root: Path, recipe_id: str) -> list[Path]:
-    paths = [root / "recipes" / f"{recipe_id}.yaml"]
-    home = os.environ.get("AGENTLAB_HOME")
-    if home:
-        paths.append(Path(home) / "recipes" / f"{recipe_id}.yaml")
-    return paths
-
-
 def _hydrate_recipes(exp: Experiment, root: Path) -> None:
-    needed = {cell.recipe for cell in exp.matrix.cells if cell.recipe and cell.recipe not in exp.recipes}
-    for recipe_id in needed:
-        for path in _recipe_search_paths(root, recipe_id):
-            if not path.is_file():
-                continue
-            data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-            if not isinstance(data, dict):
-                raise ContractError("unknown_recipe", f"recipe {recipe_id!r} is not a mapping", path=recipe_id)
-            data.setdefault("id", recipe_id)
-            exp.recipes[recipe_id] = Recipe.model_validate(data)
-            break
+    for recipe_id in {cell.recipe for cell in exp.matrix.cells if cell.recipe}:
+        load_recipe(exp, recipe_id, root)
 
 
 def parse_experiment(data: dict[str, Any]) -> Experiment:
@@ -325,16 +308,6 @@ def cell_commands(exp: Experiment) -> list[list[str]]:
                 if case.command:
                     out.append(case.command)
     return out
-
-
-def resolve_command(exp: Experiment, cell, case) -> list[str] | None:
-    if cell.command:
-        return list(cell.command) + list(cell.args or [])
-    if cell.recipe and cell.recipe in exp.recipes and exp.recipes[cell.recipe].command:
-        return list(exp.recipes[cell.recipe].command or []) + list(cell.args or [])
-    if case and case.command:
-        return list(case.command) + list(cell.args or [])
-    return None
 
 
 def _check_templates(text: str, exp: Experiment) -> None:

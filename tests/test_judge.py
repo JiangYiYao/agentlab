@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from agentlab.judge import criteria_for_judge, extract_json_payload, spawn_judge
+from agentlab.evaluation.judge import criteria_for_judge, extract_json_payload, spawn_judge
 from agentlab.models import Sandbox, Trial
 from agentlab.schema import Experiment
 

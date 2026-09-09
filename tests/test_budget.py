@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from agentlab.budget import BudgetTracker
+from agentlab.execution.budget import BudgetTracker
 from agentlab.schema import Budget, PerTrialBudget
 
 

@@ -18,6 +18,8 @@ AgentLab 本身也是一个 Skill。安装后，在对话里告诉 agent 要测�
 
 Python 依赖会由附带脚本准备，必要时安装到独立虚拟环境。无需额外安装全局 `agentlab` 命令。
 
+**不用自己找脚本。** Agent 按 Skill 指引，先用 `ensure_python.py` 准备解释器，之后统一调用 `scripts/cli.py` 的子命令。`scripts/agentlab/` 里的 Python 文件是内部模块，由程序自动调用；安装时完整保留即可。
+
 ## 从一句话开始
 
 **比较两个现成版本：**
@@ -77,13 +79,14 @@ AgentLab 会检查版本内容、任务输入和执行配置，复用仍然适�
 
 ## 详细文档
 
+- [实验流程](skills/agentlab/references/workflow.md)：计划、调用次数、开跑前准备和异常处理。
 - [实验配置](skills/agentlab/references/contract.md)：用例、执行命令、评分和预算字段。
 - [编码任务](skills/agentlab/references/coding.md)：在真实 Git 仓库中测试代码改动。
 - [执行与重评](skills/agentlab/references/lifecycle.md)：结果复用、证据保留、重试和兼容性。
 - [存储与清理](skills/agentlab/references/storage.md)：目录结构、空间占用、缓存回收和旧实验兼容。
 - [审查评分](skills/agentlab/references/audit.md)：阅读裁判输入、追溯分数来源、比较前后评审。
 - [排查实验表现](skills/agentlab/references/execution-audit.md)：对比运行前输入、执行轨迹和产物，区分事实与可能原因。
-- [Skill 使用指引](skills/agentlab/SKILL.md)：供 agent 阅读的完整工作流程。
+- [Skill 使用指引](skills/agentlab/SKILL.md)：供 agent 阅读的请求分流、命令入口和汇报要求。
 
 ## 本地开发
 
@@ -97,5 +100,29 @@ pytest -q
 ```
 
 开发安装后可使用 `agentlab --help` 查看 CLI。主要命令有 `brief`（检查实验配置）、`run`（执行）、`rescore`（重评）、`report`（生成报告）、`status`（查看进度）、`storage`（查看空间占用）和 `cleanup`（清理工作区及已归档缓存）。
+
+内部代码按职责组织，维护时从相关目录进入：
+
+```text
+skills/agentlab/
+├── SKILL.md                 请求分流、公共入口与汇报要求
+├── references/              按需阅读的流程、配置和排查说明
+└── scripts/
+    ├── ensure_python.py     准备 Python 环境
+    ├── cli.py               唯一实验操作入口
+    └── agentlab/            内部 Python 包
+        ├── cli.py          子命令与参数处理
+        ├── schema.py       配置模型；validate.py 检查配置
+        ├── execution/      调度、单次执行、环境、输入与轨迹采集
+        ├── evaluation/     脚本与模型评分、统计和采用判定
+        ├── records/        执行身份、历史记录、归档和缓存
+        ├── reporting/      汇总报告、改动展示、评分与执行审计
+        ├── adapters/       目录复制和工作区隔离
+        └── compat/         旧实验的领域提取规则
+```
+
+运行调度与单次执行分开；报告通过 records 读取历史，不导入执行调度器。两种审计页共用归档读取和页面组件。配置检查与执行共用命令及 recipe 解析。新增功能优先放入已有职责模块，不新增需要 agent 自行寻找的命令脚本。
+
+支持的操作入口是 `scripts/cli.py` 和开发安装后的 `agentlab` 命令；内部 Python 导入路径会随重构调整。本次整理保留实验配置、CLI 参数和历史归档结构。
 
 采用 [MIT 协议](LICENSE)。

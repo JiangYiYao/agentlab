@@ -5,7 +5,7 @@ import sys
 import pytest
 
 from agentlab.cli import main
-from agentlab.runs import latest_run_id
+from agentlab.records.runs import latest_run_id
 from tests.test_lifecycle import add_judge, experiment, manifest, python_command, run, save, scores
 
 

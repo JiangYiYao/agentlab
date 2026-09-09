@@ -43,7 +43,7 @@ def extract_labels(text: str, pattern: dict[str, str] | None) -> dict[str, str]:
 
 
 def counterarg(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
-    from agentlab.adapters.evaluator.builtin import resolve_report_text, _expected_labels, _extract_labels
+    from agentlab.evaluation.builtin import resolve_report_text, _expected_labels, _extract_labels
     text = resolve_report_text(trial, concern, ctx)
     basis = re.search(r"(?m)^#{0,3}\s*依据\s*$", text)
     change = re.search(r"(?m)^#{0,3}\s*改变判断的条件\s*$", text)
@@ -56,7 +56,7 @@ def counterarg(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[boo
 
 
 def no_upgrade(trial: Trial, concern: Concern, exp: Experiment, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
-    from agentlab.adapters.evaluator.builtin import resolve_report_text, _expected_labels, _extract_labels
+    from agentlab.evaluation.builtin import resolve_report_text, _expected_labels, _extract_labels
     text = resolve_report_text(trial, concern, ctx)
     extracted = _extract_labels(text, None)
     expected = _expected_labels(trial, exp)
@@ -66,5 +66,3 @@ def no_upgrade(trial: Trial, concern: Concern, exp: Experiment, ctx: dict[str, s
     if expected.get("direction") == frm and extracted.get("action") == to:
         return False, {"extracted": extracted, "expected": expected}
     return True, {"extracted": extracted, "expected": expected}
-
-

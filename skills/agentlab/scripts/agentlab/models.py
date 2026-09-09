@@ -7,6 +7,9 @@ from typing import Any
 from agentlab.schema import Case, Cell, Experiment, Variant
 
 
+SYSTEM_GATES = ["__isolation_leak__", "__wrong_skill_tree__"]
+
+
 @dataclass
 class Sandbox:
     root: Path

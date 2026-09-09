@@ -3,8 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from agentlab.adapters.evaluator.score import SYSTEM_GATES
-from agentlab.models import Score
+from agentlab.models import Score, SYSTEM_GATES
 from agentlab.schema import Concern, Experiment
 
 

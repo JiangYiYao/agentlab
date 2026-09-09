@@ -6,7 +6,7 @@ from contextlib import contextmanager, ExitStack
 from pathlib import Path
 
 from agentlab.errors import AdapterError
-from agentlab.flock import exclusive
+from agentlab.records.flock import exclusive
 from agentlab.models import Sandbox, Trial
 
 

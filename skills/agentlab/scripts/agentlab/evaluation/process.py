@@ -9,8 +9,8 @@ from pathlib import Path
 
 from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
 from agentlab.models import Usage
-from agentlab.provenance import atomic_json
-from agentlab.runner.shell import _read_usage
+from agentlab.records.provenance import atomic_json
+from agentlab.records.reader import read_usage
 from agentlab.schema import IDENTITY_ENV
 
 
@@ -50,7 +50,7 @@ def judge_command(spec, argv, cwd: Path, view: Path, prompt: str, timeout_s: flo
             raise
         finally:
             if usage_path.is_file() and usage_path.stat().st_mtime_ns != previous_usage:
-                usage = _read_usage(usage_path)
+                usage = read_usage(usage_path)
             atomic_json(view / 'execution.json', {
                 'command': command, 'wall_clock_s': time.time() - started,
                 'cwd': str(cwd), 'prompt_mode': spec.prompt.mode, 'timeout_s': timeout_s,

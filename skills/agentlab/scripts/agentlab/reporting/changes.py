@@ -9,8 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from agentlab.models import Trial
-from agentlab.runs import runs_dir
-from agentlab.workspace import collect_changes, git_roots
+from agentlab.records.runs import runs_dir
+from agentlab.execution.workspace import collect_changes, git_roots
 
 STATUS_LABEL = {"A": "新增", "M": "修改", "D": "删除", "R": "重命名", "U": "未跟踪"}
 MAX_FILE_BYTES = 512 * 1024

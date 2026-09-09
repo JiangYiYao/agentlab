@@ -13,7 +13,7 @@ import tempfile
 from pathlib import Path
 
 from agentlab.errors import ContractError
-from agentlab.provenance import atomic_json
+from agentlab.records.provenance import atomic_json
 
 
 def remove_path(path: Path) -> None:
@@ -69,7 +69,8 @@ def _files(source: Path, *, exclude: set[str] | None = None):
                 raise ContractError('missing_output_link', f'broken output link: {path}')
 
 
-def _blob(root: Path, src: Path) -> tuple[Path, dict]:
+def archive_file(root: Path, src: Path) -> tuple[Path, dict]:
+    """Store one file by content hash and return its archive path and metadata."""
     mode = src.stat().st_mode & 0o777
     with src.open('rb') as stream:
         digest = hashlib.file_digest(stream, 'sha256').hexdigest()
@@ -107,7 +108,7 @@ def snapshot(root: Path, source: Path, dest: Path, *, exclude: set[str] | None =
     _copy_directories(source, dest, exclude)
     for src in _files(source, exclude=exclude):
         rel = src.relative_to(source).as_posix()
-        blob, entry = _blob(root, src)
+        blob, entry = archive_file(root, src)
         entries[rel] = entry
         link_view(blob, dest / rel)
     return entries
@@ -151,7 +152,7 @@ def archive_outputs(root: Path, src: Path, dest: Path, evaluation: Path, executi
     _copy_directories(src, dest, transient)
     for path in _files(src, exclude=transient) if src.is_dir() else []:
         rel = path.relative_to(src).as_posix()
-        blob, entry = _blob(root, path)
+        blob, entry = archive_file(root, path)
         if original.get(rel) == entry:
             target = execution / 'outputs' / rel
         else:
@@ -169,7 +170,7 @@ def archive_outputs(root: Path, src: Path, dest: Path, evaluation: Path, executi
                 continue
             if rel in entries or (src / 'judges' / parts[1] / 'evidence').exists():
                 continue
-            blob, entry = _blob(root, path)
+            blob, entry = archive_file(root, path)
             target = evaluation / 'outputs' / rel
             link_view(blob, target)
             link_view(target, dest / rel)
@@ -288,7 +289,7 @@ def cleanup(root: Path, *, dry_run: bool = False) -> dict:
     from agentlab.adapters.isolation.worktree import (
         WorktreeIsolation, experiment_worktrees, remove_worktree, resolve_repo,
     )
-    from agentlab.flock import FileLock
+    from agentlab.records.flock import FileLock
     import yaml
 
     lock = FileLock(root / 'run.lock')

@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from agentlab.cli import main
-from agentlab.runs import latest_run_id, load_manifest
+from agentlab.records.runs import latest_run_id, load_manifest
 from tests.helpers import make_min_exp
 
 

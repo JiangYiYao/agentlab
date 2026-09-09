@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentlab.judge import JUDGE_PREAMBLE, criteria_for_judge, criteria_section
+from agentlab.evaluation.judge import JUDGE_PREAMBLE, criteria_for_judge, criteria_section
 
 
 def test_preamble_mentions_score_json() -> None:

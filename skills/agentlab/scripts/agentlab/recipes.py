@@ -37,13 +37,17 @@ def bound_command(exp: Experiment, cell, case, experiment_root: Path) -> tuple[l
     recipe = None
     if cell.recipe:
         recipe = load_recipe(exp, cell.recipe, experiment_root)
-    if cell.command:
-        argv = list(cell.command)
-    elif recipe and recipe.command:
-        argv = list(recipe.command)
-    elif case and case.command:
-        argv = list(case.command)
-    else:
+    argv = resolve_command(exp, cell, case)
+    if argv is None:
         raise ContractError("missing_command", f"cell {cell.id} has no command")
-    argv.extend(list(cell.args or []))
     return argv, recipe
+
+
+def resolve_command(exp: Experiment, cell, case) -> list[str] | None:
+    if cell.command:
+        return list(cell.command) + list(cell.args or [])
+    if cell.recipe and cell.recipe in exp.recipes and exp.recipes[cell.recipe].command:
+        return list(exp.recipes[cell.recipe].command or []) + list(cell.args or [])
+    if case and case.command:
+        return list(case.command) + list(cell.args or [])
+    return None

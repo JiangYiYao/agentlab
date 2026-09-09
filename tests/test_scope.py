@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentlab.adapters.evaluator.builtin import _in_scope, _line_present
+from agentlab.evaluation.builtin import _in_scope, _line_present
 
 
 def test_in_scope_exclude_cache() -> None:

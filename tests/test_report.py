@@ -2,9 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from agentlab.gate import TrialRecord, evaluate_promotion
+from agentlab.evaluation.gate import TrialRecord, evaluate_promotion
 from agentlab.models import Score
-from agentlab.report import render_report
+from agentlab.reporting.report import render_report
 from agentlab.schema import Experiment
 
 
@@ -61,9 +61,23 @@ def test_report_is_concern_by_cell(tmp_path: Path, monkeypatch) -> None:
     def fake_load(_exp, _root, *, trial_ids=None, run_id=None):
         return recs, []
 
-    monkeypatch.setattr("agentlab.report.load_current_records", fake_load)
+    monkeypatch.setattr("agentlab.reporting.report.load_current_records", fake_load)
     text = render_report(exp, tmp_path)
     assert "## 关注点" in text
     assert "gold @ local-cli / smoke" in text
     assert "`treat` / `local-cli` / `smoke` / r1:" in text
     assert "综合分" not in text
+
+
+def test_historical_compare_never_borrows_mutable_current_results(tmp_path):
+    import json
+    from agentlab.records.reader import load_compare_results
+    current = tmp_path / 'trials/.compare/smoke__local-cli__r1/result.json'
+    current.parent.mkdir(parents=True)
+    current.write_text(json.dumps({'marker': 'current'}))
+    assert load_compare_results(tmp_path, 'old-run') == []
+    assert load_compare_results(tmp_path, None)[0]['marker'] == 'current'
+    archived = tmp_path / 'runs/old-run/compare/smoke__local-cli__r1/result.json'
+    archived.parent.mkdir(parents=True)
+    archived.write_text(json.dumps({'marker': 'archived'}))
+    assert [item['marker'] for item in load_compare_results(tmp_path, 'old-run')] == ['archived']

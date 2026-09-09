@@ -3,11 +3,11 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from agentlab.adapters.evaluator.builtin import _workspace_diff
+from agentlab.evaluation.builtin import _workspace_diff
 from agentlab.adapters.isolation.worktree import WorktreeIsolation, ensure_git_repo
 from agentlab.models import Sandbox, Trial
 from agentlab.schema import Case, Cell, Concern, Measure, Variant
-from agentlab.workspace import hash_snapshot
+from agentlab.execution.workspace import hash_snapshot
 
 
 def _trial(tmp: Path, project: Path) -> Trial:
@@ -196,7 +196,7 @@ def test_nested_rename_from_is_project_relative(tmp_path: Path) -> None:
 
 
 def test_write_meta_keeps_workspace_snap(tmp_path: Path) -> None:
-    from agentlab.scheduler import _write_meta
+    from agentlab.records.runs import write_trial_meta
 
     project = tmp_path / "proj"
     project.mkdir()
@@ -204,9 +204,9 @@ def test_write_meta_keeps_workspace_snap(tmp_path: Path) -> None:
     trial = _trial(tmp_path, project)
     trial.trial_dir().mkdir(parents=True, exist_ok=True)
     snap = hash_snapshot(project)
-    _write_meta(trial, {"workspace_snap": snap, "worktree": False}, score_basis="abc")
-    _write_meta(trial, {"phase": "preparing"}, score_basis="abc")
-    _write_meta(trial, {"pid": 1, "pgid": 1, "phase": "running"}, score_basis="abc")
+    write_trial_meta(trial, {"workspace_snap": snap, "worktree": False}, score_basis="abc")
+    write_trial_meta(trial, {"phase": "preparing"}, score_basis="abc")
+    write_trial_meta(trial, {"pid": 1, "pgid": 1, "phase": "running"}, score_basis="abc")
     meta = json.loads((trial.trial_dir() / "meta.json").read_text(encoding="utf-8"))
     assert meta["workspace_snap"] == snap
     assert meta["phase"] == "running"
