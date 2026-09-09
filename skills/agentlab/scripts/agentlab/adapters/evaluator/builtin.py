@@ -2,12 +2,10 @@ from __future__ import annotations
 
 import fnmatch
 import json
-import os
 import re
 from pathlib import Path
 from typing import Any
 
-from agentlab.adapters.evaluator.regexes import COUNTERARG_NEEDLES, RE_ACTION, RE_DIRECTION, SECTION_PATTERNS
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import expand_templates
@@ -120,7 +118,7 @@ def _read_list(trial: Trial, spec: str | None, ctx: dict[str, str]) -> list[str]
     if not path.is_absolute():
         path = trial.experiment_root / path
     if not path.is_file():
-        return []
+        raise FileNotFoundError(f"required list missing: {path}")
     out = []
     for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.strip()
@@ -206,20 +204,15 @@ def resolve_report_text(trial: Trial, concern: Concern, ctx: dict[str, str]) -> 
 
 
 def _extract_labels(text: str, pattern: dict[str, str] | None) -> dict[str, str]:
-    pats = pattern or {}
-    direction_re = pats.get("direction") or RE_DIRECTION
-    action_re = pats.get("action") or RE_ACTION
-    # search only before 改变判断的条件
-    cut = re.search(r"(?m)^#{0,3}\s*改变判断的条件\s*$", text)
-    body = text[: cut.start()] if cut else text
-    d = re.search(direction_re, body)
-    a = re.search(action_re, body)
-    out = {}
-    if d:
-        out["direction"] = d.group(1)
-    if a:
-        out["action"] = a.group(1)
-    return out
+    if pattern:
+        result = {}
+        for key, expression in pattern.items():
+            match = re.search(expression, text)
+            if match:
+                result[key] = match.group(1) if match.lastindex else match.group(0)
+        return result
+    from agentlab.compat.investment import extract_labels
+    return extract_labels(text, pattern)
 
 
 def _expected_labels(trial: Trial, exp: Experiment) -> dict[str, Any]:
@@ -252,34 +245,20 @@ def _section_present(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tup
     text = resolve_report_text(trial, concern, ctx)
     missing = []
     for item in concern.measure.must_include or []:
-        pat = SECTION_PATTERNS.get(item) or rf"(?m)^#{{0,3}}\s*{re.escape(item)}\s*$"
+        pat = rf"(?m)^#{{0,3}}\s*{re.escape(item)}\s*$"
         if not re.search(pat, text):
             missing.append(item)
     return (not missing, {"missing": missing})
 
 
-def _counterarg(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
-    text = resolve_report_text(trial, concern, ctx)
-    basis = re.search(r"(?m)^#{0,3}\s*依据\s*$", text)
-    change = re.search(r"(?m)^#{0,3}\s*改变判断的条件\s*$", text)
-    start = basis.end() if basis else 0
-    end = change.start() if change else len(text)
-    body = text[start:end]
-    needles = concern.measure.needles or COUNTERARG_NEEDLES
-    hit = next((n for n in needles if n in body), None)
-    return (hit is not None, {"hit": hit})
+def _counterarg(trial: Trial, concern: Concern, ctx: dict[str, str]):
+    from agentlab.compat.investment import counterarg
+    return counterarg(trial, concern, ctx)
 
 
-def _no_upgrade(trial: Trial, concern: Concern, exp: Experiment, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
-    text = resolve_report_text(trial, concern, ctx)
-    extracted = _extract_labels(text, None)
-    expected = _expected_labels(trial, exp)
-    frm = concern.measure.from_
-    to = concern.measure.to
-    # expected.direction==无法判断 and extracted action==介入 → false
-    if expected.get("direction") == frm and extracted.get("action") == to:
-        return False, {"extracted": extracted, "expected": expected}
-    return True, {"extracted": extracted, "expected": expected}
+def _no_upgrade(trial: Trial, concern: Concern, exp: Experiment, ctx: dict[str, str]):
+    from agentlab.compat.investment import no_upgrade
+    return no_upgrade(trial, concern, exp, ctx)
 
 
 def _path_under(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bool, dict[str, Any]]:
@@ -298,12 +277,12 @@ def _path_under(trial: Trial, concern: Concern, ctx: dict[str, str]) -> tuple[bo
             break
     target = Path(str(cur)).resolve() if cur else None
     prefix_env = concern.measure.prefix_env
-    prefix = os.environ.get(prefix_env) if prefix_env else str(trial.outputs_dir().resolve())
+    prefix = ctx.get(prefix_env) if prefix_env else str(trial.outputs_dir().resolve())
     if target is None or not prefix:
         return False, {"target": str(cur), "prefix": prefix}
-    ok = str(target).startswith(str(Path(prefix).resolve()))
+    ok = target.is_relative_to(Path(prefix).resolve())
     suffix = concern.measure.must_suffix
-    if suffix and suffix not in str(target):
+    if suffix and not str(target).endswith(suffix):
         ok = False
     return ok, {"target": str(target), "prefix": prefix}
 

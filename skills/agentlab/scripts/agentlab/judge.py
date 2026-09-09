@@ -1,16 +1,17 @@
 from __future__ import annotations
 
+import math
 import hashlib
 import json
-import os
 import shutil
-import subprocess
 from pathlib import Path
 
-from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import resolve_argv
+from agentlab.evidence import copy_evidence
+from agentlab.runner.evaluation import judge_command
+from agentlab.errors import BudgetExceeded
 
 JUDGE_PREAMBLE = """你是测评裁判，不是被测程序。
 当前工作目录就是待评代码根。不要修改文件。
@@ -20,8 +21,8 @@ JUDGE_PREAMBLE = """你是测评裁判，不是被测程序。
 """
 
 
-def criteria_section(root: Path, concern_id: str) -> str:
-    text = (root / "criteria.md").read_text(encoding="utf-8")
+def criteria_section(root: Path, concern_id: str, criteria_path: str = "criteria.md") -> str:
+    text = (root / criteria_path).read_text(encoding="utf-8")
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
@@ -38,9 +39,9 @@ def criteria_section(root: Path, concern_id: str) -> str:
     return "\n".join(lines[start:end])
 
 
-def criteria_for_judge(root: Path, concern_id: str) -> str:
-    text = (root / "criteria.md").read_text(encoding="utf-8")
-    section = criteria_section(root, concern_id)
+def criteria_for_judge(root: Path, concern_id: str, criteria_path: str = "criteria.md") -> str:
+    text = (root / criteria_path).read_text(encoding="utf-8")
+    section = criteria_section(root, concern_id, criteria_path)
     if section.strip() == text.strip():
         return text
     lines = text.splitlines()
@@ -71,14 +72,14 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
     if spec is None or not spec.command:
         return Score(concern_id=concern.id, unknown=True, pass_=False, evidence={"error": "missing_judge_command"})
     opaque = hashlib.sha256(f"{trial.id}:{concern.id}".encode()).hexdigest()[:12]
-    view = trial.experiment_root / "trials" / ".judge" / opaque
+    view = trial.outputs_dir() / "judges" / concern.id if trial.execution_id else trial.experiment_root / "trials" / ".judge" / opaque
     if view.exists():
         shutil.rmtree(view)
     view.mkdir(parents=True, exist_ok=True)
-    excerpt = criteria_for_judge(trial.experiment_root, concern.id)
+    excerpt = criteria_for_judge(trial.experiment_root, concern.id, exp.criteria.path)
     prompt = _case_prompt(trial)
     (view / "criteria-excerpt.md").write_text(excerpt, encoding="utf-8")
-    criteria_src = trial.experiment_root / "criteria.md"
+    criteria_src = trial.experiment_root / exp.criteria.path
     if criteria_src.is_file():
         shutil.copy2(criteria_src, view / "criteria.md")
     if prompt:
@@ -99,6 +100,7 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
         + "\n",
         encoding="utf-8",
     )
+    copy_evidence(trial, view / "evidence")
     workspace = view / "workspace"
     if trial.sandbox and trial.sandbox.project_root.exists():
         shutil.copytree(trial.sandbox.project_root, workspace, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git"))
@@ -108,53 +110,26 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
     diff_src = trial.outputs_dir() / "workspace.diff"
     if diff_src.is_file():
         shutil.copy2(diff_src, view / "changes.diff")
+    if not workspace.exists() and (view / "evidence" / "workspace").is_dir():
+        shutil.copytree(view / "evidence" / "workspace", workspace)
     stdin_text = _judge_stdin(trial, concern, excerpt, prompt, change_summary)
     (view / "stdin.md").write_text(stdin_text, encoding="utf-8")
     cwd = workspace if workspace.is_dir() else view
-    env = {k: v for k, v in os.environ.items() if not k.startswith("AGENTLAB_")}
-    env.pop("AGENTLAB_VARIANT", None)
     argv = resolve_argv(list(spec.command), trial.experiment_root, {"experiment_root": str(trial.experiment_root)})
-    proc: subprocess.Popen | None = None
     stdout = stderr = b""
     try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=str(cwd),
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **start_session_kwargs(),
-        )
-        stdout, stderr = proc.communicate(input=stdin_text.encode(), timeout=timeout_s)
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout or stdout
-        stderr = exc.stderr or stderr
-        if proc is not None and proc.pid:
-            kill_process_group(proc.pid)
-            try:
-                more_out, more_err = proc.communicate(timeout=5)
-                stdout = stdout or more_out
-                stderr = stderr or more_err
-            except subprocess.TimeoutExpired:
-                pass
-        _write_judge_logs(view, stdout, stderr)
-        return Score(
-            concern_id=concern.id,
-            unknown=True,
-            pass_=False,
-            evidence={"error_code": "judge_unavailable", "error": "judge timed out"},
-        )
+        proc = judge_command(spec, argv, cwd, view, stdin_text, timeout_s, trial.budget_tracker)
+        stdout, stderr = proc.stdout, proc.stderr
+        if proc.returncode != 0:
+            _write_judge_logs(view, stdout, stderr)
+            return Score(concern_id=concern.id, unknown=True, pass_=False,
+                         evidence={"error_code": "judge_unavailable", "exit_code": proc.returncode})
+    except BudgetExceeded:
+        raise
     except Exception as exc:
-        if proc is not None and proc.pid:
-            kill_process_group(proc.pid)
         _write_judge_logs(view, stdout, stderr)
-        return Score(
-            concern_id=concern.id,
-            unknown=True,
-            pass_=False,
-            evidence={"error_code": "judge_unavailable", "error": str(exc)},
-        )
+        return Score(concern_id=concern.id, unknown=True, pass_=False,
+                     evidence={"error_code": "judge_unavailable", "error": str(exc)})
     stdout_text = (stdout or b"").decode(errors="replace")
     stderr_text = (stderr or b"").decode(errors="replace")
     _write_judge_logs(view, stdout, stderr)
@@ -182,6 +157,9 @@ def _score_from_judge(payload: object, concern_id: str) -> Score:
         raise ValueError("pass must be boolean")
     if "unknown" in payload and not isinstance(payload["unknown"], bool):
         raise ValueError("unknown must be boolean")
+    value = payload.get("value")
+    if not payload.get("unknown", False) and (not isinstance(value, (bool, int, float)) or not math.isfinite(float(value))):
+        raise ValueError("known score must have a finite numeric or boolean value")
     score = Score.from_json(payload)
     score.concern_id = concern_id
     return score
@@ -255,7 +233,7 @@ def _judge_stdin(trial: Trial, concern: Concern, excerpt: str, prompt: str, chan
         parts += ["## 改动摘要", change_summary.strip(), ""]
     parts += [
         "## 工作区",
-        "当前工作目录就是待评代码根。",
+        "当前目录提供本次产物；evidence/（或上级 evidence/）含回答 stdout.log、文件和证据清单。",
         "上级目录有 criteria.md（全文）、prompt.md、trial.json；若有改动补丁则是 changes.diff。",
         "不要修改这些文件。",
         "",

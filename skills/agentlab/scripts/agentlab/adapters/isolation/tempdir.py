@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import shutil
 from contextlib import nullcontext
-from pathlib import Path
 
 from agentlab.models import Sandbox, Trial
 
@@ -11,7 +10,7 @@ class TempdirIsolation:
     type = "tempdir"
 
     def create(self, trial: Trial) -> Sandbox:
-        root = trial.trial_dir() / "sandbox"
+        root = trial.sandbox_path or trial.trial_dir() / "sandbox"
         if root.exists():
             shutil.rmtree(root)
         root.mkdir(parents=True, exist_ok=True)

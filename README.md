@@ -1,97 +1,94 @@
 # AgentLab
 
-[English](README.md) · [中文](README.zh.md)
+中文 · [English](README.en.md)
 
-On an existing Skill or agent workflow: talk through a change first, then compare it with the current version by the standards you care about. Or skip the change and just run one version several times. Not for writing a new SKILL.md from scratch.
+**测试和比较已有的 AI Skill 或工作流，看看改动是否真的有效。**
 
-AgentLab is a standard skill. Copy [`skills/agentlab/`](skills/agentlab/) into your coding agent. The CLI lives in that folder (`scripts/cli.py`); the agent runs it. You do not install a global `agentlab` command.
+改了提示词，结果有没有更好？换了一套流程，能省多少时间？同一个任务多跑几次，表现还稳不稳？AgentLab 把不同版本放到相同用例下测试，记录结果、耗时和可获取的用量，帮助你判断是否采用改动。
 
-MIT. Python 3.11+ on the machine is enough. The skill prepares its own interpreter (`scripts/ensure_python.py`); do not `pip install` into the system Python.
+AgentLab 本身也是一个 Skill。安装后，在对话里告诉 agent 要测什么，它会准备实验、执行测试，再带你看结果。日常使用无需手写配置文件或操作命令行。
 
-macOS and Linux only.
+## 安装
 
-## How an experiment works
+需要 **macOS 或 Linux、Python 3.11+**，以及一个支持本地 Skill 的 coding agent。被测工作流还需要有一条在本机能正常运行的命令；所需工具和登录由你已有的环境提供。
 
-The source tree is not edited. Each version is a copy. Each trial is one version × one case × one repeat, run in its own output directory with the command you already use. Scores come only from that run.
+1. 下载或克隆本仓库。
+2. 将整个 [`skills/agentlab/`](skills/agentlab/) 文件夹复制到你的 agent 的 skills 目录，保留其中的 `scripts/` 和 `references/`。
+3. 按所用 agent 的方式加载 Skill，然后在对话中使用 AgentLab。
 
-```mermaid
-flowchart TB
-  src[Existing skill or workflow]
-  src --> ctrl[Control: unmodified copy]
-  src --> treat[Treatment: copy plus the agreed change]
-  ctrl --> expand
-  treat --> expand
-  expand[Trial = version × case × repeat]
-  expand --> iso[Own output dir; host login and tools kept]
-  iso --> exec[Run your command on that copy]
-  exec --> score[Score by the standards you named]
-  score --> cmp[Compare control vs treatment]
-  cmp --> out[What held, what did not, is the change usable]
-```
+Python 依赖会由附带脚本准备，必要时安装到独立虚拟环境。无需额外安装全局 `agentlab` 命令。
 
-## How you use it
+## 从一句话开始
 
-1. Copy the whole `skills/agentlab/` directory into your agent’s skills folder (everything next to `SKILL.md`).
-2. Have Python 3.11+ on the machine.
-3. In chat, say which directory you want to change or to run.
+**比较两个现成版本：**
 
-For example:
+> 用 AgentLab 比较 `./skills/summarizer-v1` 和 `./skills/summarizer-v2`。用同一批文档，各跑 3 次，重点看关键信息有没有遗漏，以及耗时有没有下降。
 
-> I want to improve this existing skill: less time and spend, without dropping facts that would change a decision.
+**检查一个版本是否稳定：**
 
-The agent should first propose a concrete change. After you agree, it lays out the comparison (control vs treatment), asks only what it still needs (which command already works on this machine, how to pass the prompt), then runs it. There is no default time or spend cap.
+> 用 AgentLab 测一下 `./skills/data-extractor`。选几份格式不同的输入，重复运行，检查输出 JSON 是否有效、必填字段是否齐全。
 
-If you only want to run the current version several times, say that; it should skip inventing a change.
+**先讨论改法，再做对照测试：**
 
-Scores are whatever that run wrote down. To try another change, say which one. A directory without `SKILL.md` works the same way: point the command at your program.
+> 我想优化 `./skills/code-review`，减少重复检查，同时保留重要问题。先看看可以怎么改，方案定下来后再和原版比较。
 
-What the agent actually runs:
+除了 Skill，也可以测试能通过命令启动的 agent 工作流。测试任务、输入材料和评价标准都由你的实际需求决定。
 
-```text
-python3 <skills/agentlab>/scripts/ensure_python.py
-<that interpreter> <skills/agentlab>/scripts/cli.py brief --exp <experiment-dir> --confirm-criteria
-<that interpreter> <skills/agentlab>/scripts/cli.py run --exp <experiment-dir> --gate
-<that interpreter> <skills/agentlab>/scripts/cli.py report --exp <experiment-dir>
-```
+## 接下来会发生什么
 
-## What’s in the skill
+Agent 会先读相关目录，整理一份具体的测试计划：比较哪些版本、使用哪些用例、各跑几次、并发多少，以及怎样判断结果。如果需要模型评审，也会说明评审方式和调用次数。缺少启动命令或输入材料时，它会向你补充确认。
 
-```text
-skills/agentlab/
-  SKILL.md                 briefing instructions
-  scripts/cli.py           command entry
-  scripts/ensure_python.py isolate a 3.11+ interpreter
-  scripts/agentlab/        implementation
-  references/contract.md  experiment.yaml shape
-  references/coding.md    recipe when the skill edits a real git repo
-```
+计划确认后开始执行。待比较的版本保存在实验目录中；编码任务可以使用独立的 Git worktree。检查文件是否存在、JSON 是否有效、测试是否通过等明确要求，用脚本验证；内容质量等需要判断的部分，可以交给模型评审。
 
-The Skill under test is not copied into your global skills folder. If the model should follow a Skill, the prompt tells it to read `${program_root}/SKILL.md`.
+你可以指定时间、金额或 token 上限，默认不设置。耗时会被记录；费用和 token 统计取决于所用命令是否提供相应数据，无法获取的用量会标为未知。
 
-After a run, the experiment directory has `experiment.yaml`, `criteria.md`, the candidates, and `report.md`. Unless you choose another path, that directory is under `~/.agentlab/experiments/`. Those files stay on your machine (the repo does not publish example experiment trees).
+## 看结果，也能追溯过程
 
-## Working on this repo / CI
+运行结束后，agent 会围绕你关心的问题解释结果：哪些要求已满足、哪些失败、哪个版本表现更好，以及还有哪些结论缺少依据。
 
-From the repository root:
+实验默认保存在 `~/.agentlab/experiments/`，也可以指定其他位置。你可以直接查看：
+
+| 内容 | 在哪里看 |
+|---|---|
+| 各版本的结果、评分和耗时 | 实验目录中的 `report.md` |
+| 本次使用的配置和评价标准 | `experiment.yaml`、`criteria.md` |
+| 每次运行的输出、日志和评分依据 | `runs/<run_id>/trials/` |
+| 编码任务的文件改动 | `runs/<run_id>/diff.html` |
+
+记录保存在本机；执行时是否调用外部服务，取决于你选择的命令和评审模型。
+
+## 继续比较，不必每次从头跑
+
+可以在原来的对话里继续提出要求：
+
+> 保留这次的执行结果，换一个评审模型重新评分。
+
+> 再加一组长文档用例，看看新版是否还有效。
+
+> 这次全部重新运行，不复用之前的结果。
+
+AgentLab 会检查版本内容、任务输入和执行配置，复用仍然适用的结果。只换评分方式时，可以用已保存的材料重评；只调整通过阈值时，可以沿用已有测量值。历史运行保留当时的配置和结论，方便回看。
+
+重评需要相应的输出材料已经保存。具体复用规则、证据配置及旧版本升级说明，见[执行与重评说明](skills/agentlab/references/lifecycle.md)。
+
+## 详细文档
+
+- [实验配置](skills/agentlab/references/contract.md)：用例、执行命令、评分和预算字段。
+- [编码任务](skills/agentlab/references/coding.md)：在真实 Git 仓库中测试代码改动。
+- [执行与重评](skills/agentlab/references/lifecycle.md)：结果复用、证据保留、重试和兼容性。
+- [Skill 使用指引](skills/agentlab/SKILL.md)：供 agent 阅读的完整工作流程。
+
+## 本地开发
+
+在仓库根目录执行，使用 Python 3.11+：
 
 ```bash
-python3.12 -m venv .venv
+python3 -m venv .venv
 source .venv/bin/activate
 pip install -e ".[dev]"
 pytest -q
 ```
 
-`pip install -e .` also puts `agentlab` on PATH; it is the same code as `scripts/cli.py`. After briefing, `experiment.yaml` contains `criteria.sha256`.
+开发安装后可使用 `agentlab --help` 查看 CLI。主要命令有 `brief`（检查实验配置）、`run`（执行）、`rescore`（重评）、`report`（生成报告）、`status`（查看进度）和 `cleanup`（清理实验工作区）。
 
-`--gate` exit codes: `0` the required checks held, `1` something required did not hold so the change is not usable, `2` the contract is invalid, `3` a cap you set stopped an incomplete run, or the command could not start (workspace trust, login, bad model/flags) so the rest of the batch was skipped.
-
-| Subcommand | What it does |
-|---|---|
-| `brief` | Check the contract. `--confirm-criteria` writes `criteria.sha256`. |
-| `run [--gate]` | Isolate, run the command, score; `--gate` fails if a required check does not hold. |
-| `report` | Write `report.md` for the latest run (`--run` to pick another). |
-| `promote --only-variant ID` | Update `promotion.json`. |
-| `cleanup` | After the user says this experiment is finished, remove leftover git worktrees for this run. |
-| `status` | Show the latest run: planned/ran/reused/skipped and each trial's phase. |
-
-Not included: Windows, Docker isolation, an HTML report.
+采用 [MIT 协议](LICENSE)。

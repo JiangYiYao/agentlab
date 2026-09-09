@@ -355,6 +355,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             repetitions=args.repetitions,
             retry_failed=args.retry_failed,
             no_reuse=args.no_reuse,
+            rescore=getattr(args, "rescore", False),
+            source_run=getattr(args, "run", None),
         )
         if not args.dry_expand:
             write_report(exp, exp_dir, trial_ids=[t.id for t in trials])
@@ -370,7 +372,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
 def _cmd_report(args: argparse.Namespace) -> int:
     try:
         exp_dir = _resolve_exp(args)
-        exp = _load_valid(exp_dir)
+        ident = getattr(args, "run", None) or latest_run_id(exp_dir)
+        manifest = load_manifest(exp_dir, ident) if ident else None
+        from agentlab.schema import Experiment
+        exp = Experiment.model_validate(manifest["experiment"]) if manifest and manifest.get("experiment") else load_experiment(exp_dir)
         dest = Path(args.o).expanduser().resolve() if args.o else None
         path = write_report(exp, exp_dir, dest, run_id=getattr(args, "run", None))
         print(path)
@@ -498,6 +503,15 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--repetitions", type=int)
     run.add_argument("--no-reuse", action="store_true")
     run.set_defaults(func=_cmd_run)
+
+    rescore = sub.add_parser("rescore", help="Re-evaluate archived evidence without executing the tested command")
+    rescore.add_argument("--exp")
+    rescore.add_argument("--run")
+    rescore.add_argument("--only-variant")
+    rescore.add_argument("--only-cell")
+    rescore.add_argument("--only-case")
+    rescore.set_defaults(func=_cmd_run, rescore=True, no_reuse=False, force=False, retry_failed=False,
+                        keep_sandbox=False, dry_expand=False, gate=True, max_parallel=None, repetitions=None)
 
     report = sub.add_parser("report")
     report.add_argument("--exp")

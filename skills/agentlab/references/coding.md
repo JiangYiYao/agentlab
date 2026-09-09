@@ -67,6 +67,7 @@ concerns:
     scope: case
     measure:
       type: script
+      result: exit_code
       command: ["<用户确认的测试命令>"]
       cwd: sandbox
     pass: { op: "==", vs: value, value: true }
@@ -86,6 +87,7 @@ isolation:
   type: git-worktree
   repo: <任务仓的绝对路径>
   freeze: HEAD
+  keep_sandbox: true
   inherit_host_identity: true
   # 根仓 worktree 里没有的嵌套 git 仓（相对 ${project_root}）：
   # nested_repos:

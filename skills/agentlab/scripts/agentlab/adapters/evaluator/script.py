@@ -5,10 +5,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-from agentlab.adapters.isolation.process import start_session_kwargs
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
-from agentlab.templates import resolve_argv
+from agentlab.templates import resolve_argv, expand_templates
+from agentlab.runner.evaluation import run_process
 
 
 def run_script_measure(
@@ -25,26 +25,25 @@ def run_script_measure(
     cwd = _measure_cwd(trial, measure.cwd)
     argv = resolve_argv(list(measure.command), trial.experiment_root, ctx)
     try:
-        proc = subprocess.run(
-            argv,
-            cwd=str(cwd),
-            env=env,
-            timeout=timeout_s,
-            capture_output=True,
-            **start_session_kwargs(),
-        )
+        eval_env = dict(env)
+        eval_env.update({k: expand_templates(v, ctx) for k, v in (measure.env or {}).items()})
+        proc = run_process(argv, cwd, eval_env, timeout_s)
     except subprocess.TimeoutExpired:
         return Score(concern_id=concern.id, unknown=True, pass_=False, evidence={"error": "script timeout"})
     except Exception as exc:
         return Score(concern_id=concern.id, unknown=True, pass_=False, evidence={"error": str(exc)})
+    json_result = measure.result == "json" or (measure.result is None and bool(measure.output_json or measure.value_path))
+    if not json_result:
+        return Score(concern_id=concern.id, value=proc.returncode == 0,
+                     evidence={"exit_code": proc.returncode, "stderr": proc.stderr[-500:].decode(errors="replace")})
     if proc.returncode != 0:
         return Score(
             concern_id=concern.id,
             unknown=True,
             pass_=False,
-            evidence={"error": "script nonzero", "stderr": proc.stderr[-500:]},
+            evidence={"error": "script nonzero", "stderr": proc.stderr[-500:].decode(errors="replace")},
         )
-    out_rel = measure.output_json or "outputs/eval/out.json"
+    out_rel = expand_templates(measure.output_json or "outputs/eval/out.json", ctx)
     out_path = trial.trial_dir() / out_rel if not Path(out_rel).is_absolute() else Path(out_rel)
     # also accept relative to trial outputs
     if not out_path.is_file():

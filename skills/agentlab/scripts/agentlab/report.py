@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 
 from agentlab.compare_judge import load_compare_results
 from agentlab.diffreport import write_run_diff
-from agentlab.gate import evaluate_promotion
-from agentlab.runs import latest_run_id, planned_ids_for_run, runs_dir
+from agentlab.gate import evaluate_promotion, Promotion, VariantPromotion
+from agentlab.runs import latest_run_id, planned_ids_for_run, runs_dir, load_manifest
 from agentlab.scheduler import load_current_records
 from agentlab.schema import Experiment
 from agentlab.stats import concern_stats, paired_deltas
@@ -19,10 +20,25 @@ def render_report(
     trial_ids: list[str] | None = None,
 ) -> str:
     ident = run_id or latest_run_id(root)
+    manifest = load_manifest(root, ident) if ident else None
+    if manifest and manifest.get("experiment"):
+        exp = Experiment.model_validate(manifest["experiment"])
     planned = trial_ids if trial_ids is not None else planned_ids_for_run(root, ident)
-    records, stale = load_current_records(exp, root, trial_ids=planned, run_id=ident)
-    promo = evaluate_promotion(exp, records)
-    promo.ignored_stale = stale
+    kwargs = {"historical": True} if manifest else {}
+    records, stale = load_current_records(exp, root, trial_ids=planned, run_id=ident, **kwargs)
+    scope = {key: {manifest[key]} if manifest and manifest.get(key) else None for key in ("only_variant", "only_cell", "only_case")}
+    promo = evaluate_promotion(exp, records, only_variants=scope["only_variant"], only_cells=scope["only_cell"], only_cases=scope["only_case"])
+    saved_decision = runs_dir(root) / ident / "promotion.json" if ident else None
+    legacy = bool(manifest and not manifest.get("experiment"))
+    if saved_decision and saved_decision.is_file():
+        data = json.loads(saved_decision.read_text())
+        promo = Promotion(variants={key: VariantPromotion(**value) for key, value in data.get("variants", {}).items()},
+                          system_ok=data.get("system_ok", False), empty_required=data.get("empty_required", False),
+                          ignored_stale=data.get("ignored_stale", []))
+    elif legacy:
+        promo = Promotion(variants={}, system_ok=False)
+    else:
+        promo.ignored_stale = stale
     lines = [
         f"# Report: {exp.id}",
         "",
@@ -32,6 +48,14 @@ def render_report(
         f"- planned: {len(planned) if planned is not None else 'all on disk'}",
         f"- scored: {len(records)}",
     ]
+    if legacy:
+        lines.append("- 旧运行没有契约快照：展示原始分数及已保存结论，不用当前规则重算历史判定。")
+    if manifest:
+        for key in ("status", "elapsed_s", "execution_s", "evaluation_s", "compare_s", "usage"):
+            if key in manifest:
+                lines.append(f"- {key}: {manifest[key]}")
+        for key in ("ran", "reused", "rescored", "skipped", "env_unusable"):
+            lines.append(f"- {key}: {len(manifest.get(key) or [])}")
     if ident and (runs_dir(root) / ident / "diff.html").is_file():
         lines.append(f"- 代码改动阅读: `runs/{ident}/diff.html`（用浏览器打开）")
     lines.extend(
@@ -39,11 +63,11 @@ def render_report(
             "",
             "## 晋级",
             "",
-            f"- system_ok: {promo.system_ok}",
+            f"- system_ok: {'unknown' if legacy and not (saved_decision and saved_decision.is_file()) else promo.system_ok}",
         ]
     )
     if not promo.variants:
-        lines.append("- 无 treatment 在当前这次运行里")
+        lines.append("- 无已保存的晋级结论" if legacy else "- 无 treatment 在当前这次运行里")
     for vid, vp in promo.variants.items():
         lines.append(f"- `{vid}`: promotable={vp.promotable} recommend_ship={vp.recommend_ship}")
         for cell, ok in vp.cell_pass.items():

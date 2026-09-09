@@ -27,7 +27,7 @@ def merge_env(
     inherit_home: bool = True,
     sandbox_home: Path | None = None,
 ) -> dict[str, str]:
-    env = {k: v for k, v in os.environ.items() if isinstance(v, str)}
+    env = {k: v for k, v in os.environ.items() if isinstance(v, str) and k not in {"GIT_DIR", "GIT_WORK_TREE"}}
     ctx_map = dict(ctx or {})
     for key, value in overlays.items():
         env[key] = expand_templates(value, ctx_map) if "${" in value else value
@@ -43,6 +43,8 @@ def merge_env(
         for key, value in extra_env.items():
             env[key] = expand_templates(value, ctx_map) if "${" in value else value
     if not inherit_home:
+        for key in IDENTITY_ENV:
+            env.pop(key, None)
         if sandbox_home is None:
             raise ContractError("unknown_field", "inherit_host_identity=false requires sandbox.home")
         env["HOME"] = str(sandbox_home)

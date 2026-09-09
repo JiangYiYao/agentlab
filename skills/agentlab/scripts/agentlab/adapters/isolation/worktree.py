@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import shutil
 import subprocess
-from contextlib import contextmanager
+from contextlib import contextmanager, ExitStack
 from pathlib import Path
 
 from agentlab.errors import AdapterError
@@ -141,14 +141,24 @@ class WorktreeIsolation:
             raise AdapterError("sandbox_create_failed", "worktree missing repo")
         return git_common_dir(self.repo) / "agentlab-worktree.lock"
 
+    @contextmanager
     def worktree_lock(self):
-        return exclusive(self.lock_path())
+        paths = {self.lock_path()}
+        for spec in self.nested_repos:
+            source = getattr(spec, "source", None) or spec["source"]
+            src = resolve_repo(source, self.experiment_root or Path.cwd())
+            if src.exists():
+                paths.add(git_common_dir(src) / "agentlab-worktree.lock")
+        with ExitStack() as stack:
+            for path in sorted(paths):
+                stack.enter_context(exclusive(path))
+            yield
 
     def create(self, trial: Trial) -> Sandbox:
         if self.repo is None:
             raise AdapterError("sandbox_create_failed", "worktree missing repo")
         ensure_git_repo(self.repo)
-        dest = trial.trial_dir() / "sandbox"
+        dest = trial.sandbox_path or trial.trial_dir() / "sandbox"
         if dest.exists() and any(dest.iterdir()):
             raise AdapterError("sandbox_create_failed", f"worktree dest not empty: {dest}")
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -165,9 +175,12 @@ class WorktreeIsolation:
             prune_worktrees(self.repo)
             raise AdapterError("sandbox_create_failed", str(exc)) from exc
         project = dest if self.subdir in {".", ""} else dest / self.subdir
+        if not project.resolve().is_relative_to(dest.resolve()):
+            self.destroy(Sandbox(root=dest, project_root=dest, home=None, worktree=True))
+            raise AdapterError("unsafe_path", "project subdirectory escapes worktree")
         try:
             self._add_nested(dest)
-        except AdapterError:
+        except Exception:
             self.destroy(Sandbox(root=dest, project_root=project, home=None, worktree=True))
             raise
         return Sandbox(root=dest, project_root=project, home=None, worktree=True)
@@ -178,6 +191,8 @@ class WorktreeIsolation:
             source = getattr(spec, "source", None) or spec["source"]
             freeze = getattr(spec, "freeze", None) if not isinstance(spec, dict) else spec.get("freeze")
             nested_dest = dest / rel
+            if not nested_dest.resolve().is_relative_to(dest.resolve()) or nested_dest.resolve() == dest.resolve():
+                raise AdapterError("unsafe_path", "nested repository escapes worktree")
             if nested_dest.exists() and any(nested_dest.iterdir()):
                 raise AdapterError("sandbox_create_failed", f"nested dest not empty: {nested_dest}")
             nested_dest.parent.mkdir(parents=True, exist_ok=True)
@@ -208,6 +223,8 @@ class WorktreeIsolation:
             else:
                 src = src.resolve()
             nested_dest = sandbox.root / rel
+            if not nested_dest.resolve().is_relative_to(sandbox.root.resolve()) or nested_dest.resolve() == sandbox.root.resolve():
+                continue
             if src.exists() and nested_dest.exists():
                 remove_worktree(src, nested_dest)
         if self.repo is None:

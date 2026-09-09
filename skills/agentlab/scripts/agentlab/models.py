@@ -91,6 +91,16 @@ class Trial:
     reused: bool = False
     retried: bool = False
     reused_from: str | None = None
+    execution_id: str | None = None
+    execution_basis: str | None = None
+    sandbox_path: Path | None = None
+    measurement_basis: dict[str, str] = field(default_factory=dict)
+    rescored: bool = False
+    stage_times: dict[str, float] = field(default_factory=dict)
+    budget_tracker: Any = None
+    cached_scores: dict[str, Score] = field(default_factory=dict)
+    force_score: bool = False
+    compare_basis: str | None = None
 
     def trial_dir(self) -> Path:
         return self.experiment_root / "trials" / self.id

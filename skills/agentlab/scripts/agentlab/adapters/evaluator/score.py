@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import time
+from agentlab.errors import BudgetExceeded
+
 from agentlab.adapters.evaluator.builtin import builtin_evaluate
 from agentlab.adapters.evaluator.script import run_script_measure
 from agentlab.judge import spawn_judge
 from agentlab.models import Score, Trial
 from agentlab.schema import Experiment, judge_mode
+from agentlab.provenance import measurement_basis
 
 SYSTEM_GATES = ["__isolation_leak__", "__wrong_skill_tree__"]
 
@@ -37,7 +41,20 @@ def score_concerns(
         return fail_closed_for_gates(trial, exp, reason="require_exit_0")
     out: list[Score] = []
     for concern in exp.concerns:
+        if trial.budget_tracker and trial.budget_tracker.exceeded():
+            raise BudgetExceeded(trial.budget_tracker.exceeded_reason)
+        basis = measurement_basis(exp, trial, concern)
+        cached = trial.cached_scores.get(concern.id)
+        if not (trial.force_score and (concern.measure.type == "llm_rubric" or (cached is not None and cached.unknown))) and cached is not None and trial.measurement_basis.get(concern.id) == basis:
+            out.append(cached)
+            continue
+        trial.measurement_basis[concern.id] = basis
         t = concern.measure.type
+        needs_workspace = t in {"gold_tree", "must_list", "workspace_diff"} or (t == "script" and concern.measure.cwd == "sandbox")
+        if trial.reused and needs_workspace and trial.sandbox is None:
+            out.append(Score(concern_id=concern.id, unknown=True, pass_=False,
+                             evidence={"error": "complete workspace evidence unavailable; run with evidence.workspace: true to support this evaluator"}))
+            continue
         if t == "llm_rubric":
             if judge_mode(exp) == "compare_case":
                 continue
@@ -45,7 +62,9 @@ def score_concerns(
             out.append(spawn_judge(trial, concern, exp, int(timeout)))
         elif t == "script":
             timeout = concern.measure.timeout_s or 120
-            out.append(run_script_measure(trial, concern, exp, ctx, env, int(timeout)))
+            if trial.budget_tracker and exp.budget.wall_clock_s is not None:
+                timeout = min(timeout, max(0.01, trial.budget_tracker.started + exp.budget.wall_clock_s - time.time()))
+            out.append(run_script_measure(trial, concern, exp, ctx, env, timeout))
         else:
             out.append(builtin_evaluate(trial, concern, exp, ctx))
     return out

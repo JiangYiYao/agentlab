@@ -27,7 +27,13 @@ class DirArtifact:
     def materialize(self, variant: Variant, dest: Path, root: Path) -> Path:
         src = (root / variant.path).resolve()
         if dest.exists():
-            shutil.rmtree(dest)
+            for child in dest.iterdir():
+                if child.name == ".git":
+                    continue
+                if child.is_dir() and not child.is_symlink():
+                    shutil.rmtree(child)
+                else:
+                    child.unlink()
         dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(src, dest, symlinks=False)
+        shutil.copytree(src, dest, symlinks=False, dirs_exist_ok=True, ignore=shutil.ignore_patterns(".git", "__pycache__"))
         return dest

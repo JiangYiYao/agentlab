@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Iterable
+from typing import Any
 
 from agentlab.adapters.evaluator.score import SYSTEM_GATES
 from agentlab.models import Score
@@ -91,6 +91,7 @@ class TrialRecord:
     role: str
     scores: dict[str, Score]
     skipped: bool = False
+    execution_ok: bool = True
 
 
 def evaluate_promotion(
@@ -116,8 +117,27 @@ def evaluate_promotion(
     if not required:
         return Promotion(variants={}, system_ok=False, empty_required=True)
 
+    selected_ids = {v.id for v in V} | {_baseline_id(exp)}
+    records = [r for r in records if r.cell_id in {c.id for c in C} and r.case_id in {k.id for k in K} and r.variant_id in selected_ids]
     system_ok = all_system_gates_ok(records, C, K)
     if not V:
+        present = {(r.cell_id, r.case_id, r.repeat) for r in records if r.variant_id == _baseline_id(exp) and not r.skipped and r.execution_ok}
+        system_ok = system_ok and all((cid, case.id, repeat) in present for cid in required for case in K for repeat in range(1, exp.repetitions + 1))
+        for concern in exp.concerns:
+            if concern.role != "gate" and not (concern.role == "objective" and concern.pass_):
+                continue
+            if concern.pass_ and concern.pass_.vs == "baseline":
+                continue
+            for cell_id in required:
+                for case in K if concern.scope == "case" else [None]:
+                    case_id = case.id if case else None
+                    if concern.role == "gate":
+                        sc = aggregate_all_pass(records, _baseline_id(exp), cell_id, case_id, concern)
+                        good = sc.pass_ is True
+                    else:
+                        sc = aggregate_score(records, _baseline_id(exp), cell_id, case_id, concern)
+                        good = compare(sc, concern.pass_, None, is_baseline=True) is True
+                    system_ok = system_ok and good and sc.n >= (concern.pass_.min_n if concern.pass_ else 1)
         return Promotion(variants={}, system_ok=system_ok)
 
     out: dict[str, VariantPromotion] = {}
@@ -125,7 +145,10 @@ def evaluate_promotion(
         cell_pass: dict[str, bool] = {}
         failures: list[dict[str, Any]] = []
         for cell in C:
-            ok = True
+            present = {(r.case_id, r.repeat) for r in records if r.variant_id == variant.id and r.cell_id == cell.id and not r.skipped and r.execution_ok}
+            ok = all((case.id, repeat) in present for case in K for repeat in range(1, exp.repetitions + 1))
+            if not ok:
+                failures.append({"cell": cell.id, "reason": "missing_or_failed_trials"})
             for gate in [c for c in exp.concerns if c.role == "gate"]:
                 units = K if gate.scope == "case" else [None]
                 for case in units:
@@ -135,21 +158,10 @@ def evaluate_promotion(
                         ok = False
                         failures.append({"concern": gate.id, "cell": cell.id, "reason": "min_n"})
                     else:
-                        base = None
-                        if gate.pass_ and gate.pass_.vs == "baseline":
-                            base = aggregate_all_pass(records, _baseline_id(exp), cell.id, case.id if case else None, gate)
-                        passed = compare(sc, gate.pass_, base, is_baseline=False) if gate.pass_ else (not sc.unknown)
-                        if sc.unknown or passed is False:
+                        if sc.unknown or sc.pass_ is not True:
                             ok = False
                             failures.append({"concern": gate.id, "cell": cell.id, "reason": "fail"})
             for gid in SYSTEM_GATES:
-                dummy = Concern.model_construct(
-                    id=gid,
-                    intent="system",
-                    role="gate",
-                    scope="case",
-                    measure=None,  # type: ignore[arg-type]
-                )
                 # system: any unknown/false on this cell
                 if not _system_cell_ok(records, variant.id, cell.id, gid):
                     ok = False
@@ -262,21 +274,27 @@ def aggregate_all_pass(
 ) -> Score:
     matched = _match(records, variant_id, cell_id, case_id)
     n = 0
-    unknown = False
-    passed = True
-    value = True
+    unknown = not matched
+    passed = bool(matched)
     for rec in matched:
         if rec.skipped:
+            unknown = True
+            passed = False
             continue
         n += 1
         sc = rec.scores.get(concern.id)
         if sc is None or sc.unknown:
             unknown = True
             passed = False
-        elif sc.pass_ is False or (sc.pass_ is None and sc.value is False):
-            passed = False
-            value = False
-    return Score(concern_id=concern.id, value=value, unknown=unknown, pass_=passed and not unknown, n=n)
+            continue
+        if concern.pass_:
+            baseline = next((r.scores.get(concern.id) for r in records
+                             if r.role == "baseline" and r.cell_id == rec.cell_id
+                             and r.case_id == rec.case_id and r.repeat == rec.repeat and not r.skipped), None)
+            passed = passed and compare(sc, concern.pass_, baseline, is_baseline=rec.role == "baseline") is not False
+        else:
+            passed = passed and sc.pass_ is not False and sc.value is not False
+    return Score(concern_id=concern.id, value=passed, unknown=unknown, pass_=passed and not unknown, n=n)
 
 
 def aggregate_score(
@@ -372,8 +390,8 @@ def all_system_gates_ok(records: list[TrialRecord], cells, cases) -> bool:
     if not records:
         return False
     for rec in records:
-        if rec.skipped:
-            continue
+        if rec.skipped or not rec.execution_ok:
+            return False
         for gid in SYSTEM_GATES:
             sc = rec.scores.get(gid)
             if sc is None or sc.unknown or sc.pass_ is False or sc.value is False:

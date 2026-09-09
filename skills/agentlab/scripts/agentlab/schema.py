@@ -28,7 +28,7 @@ def _check_forbidden(data: dict[str, Any], path: str) -> None:
 
 
 class StrictModel(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
 
 
 class Hypothesis(StrictModel):
@@ -74,12 +74,12 @@ class PassRule(StrictModel):
     op: Literal[">", "<", ">=", "<=", "==", "!="]
     vs: Literal["baseline", "value"] = "value"
     value: Any = None
-    margin: float = 0.0
-    min_n: int = 1
+    margin: float = Field(default=0.0, ge=0)
+    min_n: int = Field(default=1, gt=0)
 
 
 class Measure(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     type: str
     command: list[str] | None = None
     cwd: Literal["experiment", "sandbox", "trial"] | None = None
@@ -117,6 +117,8 @@ class Measure(BaseModel):
     model: str | None = None
     include: list[str] | None = None
     exclude: list[str] | None = None
+    result: Literal["exit_code", "json"] | None = None
+    inputs: list[str] = Field(default_factory=list)
 
     @model_validator(mode="before")
     @classmethod
@@ -225,6 +227,7 @@ class Isolation(StrictModel):
     keep_sandbox: bool = False
     keep_on_fail: bool = True
     env_inject: dict[str, str] | None = None
+    protected_paths: list[str] = Field(default_factory=list)
 
     @field_validator("worktree_add_serial")
     @classmethod
@@ -239,7 +242,7 @@ class Isolation(StrictModel):
         if not value:
             return value
         for key in value:
-            if key in IDENTITY_ENV:
+            if key in RESERVED_CELL_ENV:
                 raise ContractError(
                     "reserved_env_key",
                     f"isolation.env_inject cannot set {key}",
@@ -265,6 +268,7 @@ class Case(StrictModel):
     fixtures: Fixtures | None = None
     expected_labels: dict[str, Any] | None = None
     env: dict[str, str] | None = None
+    inputs: list[str] = Field(default_factory=list)
 
     @field_validator("id")
     @classmethod
@@ -285,18 +289,19 @@ class Case(StrictModel):
 
 
 class PerTrialBudget(StrictModel):
-    wall_clock_s: int | None = None
-    tokens: int | None = None
-    usd: float | None = None
+    wall_clock_s: int | None = Field(default=None, gt=0)
+    tokens: int | None = Field(default=None, gt=0)
+    usd: float | None = Field(default=None, gt=0)
 
 
 class Budget(StrictModel):
-    max_trials: int = 40
-    max_parallel: int = 4
-    wall_clock_s: int | None = None
-    tokens: int | None = None
-    usd: float | None = None
+    max_trials: int = Field(default=40, gt=0)
+    max_parallel: int = Field(default=4, gt=0)
+    wall_clock_s: int | None = Field(default=None, gt=0)
+    tokens: int | None = Field(default=None, gt=0)
+    usd: float | None = Field(default=None, gt=0)
     per_trial: PerTrialBudget = Field(default_factory=PerTrialBudget)
+    per_judge: PerTrialBudget = Field(default_factory=PerTrialBudget)
     on_exceed: Literal["stop", "skip_remaining"] = "stop"
 
 
@@ -331,6 +336,12 @@ class Recipe(StrictModel):
         return value
 
 
+class EvidenceSpec(StrictModel):
+    files: list[str] = Field(default_factory=list)
+    workspace: bool = False
+    max_file_bytes: int = Field(default=4 * 1024 * 1024, gt=0)
+
+
 class Experiment(StrictModel):
     schema_version: Literal[1]
     id: str
@@ -346,7 +357,8 @@ class Experiment(StrictModel):
     budget: Budget
     criteria: CriteriaRef
     judge: JudgeSpec | None = None
-    repetitions: int = 1
+    repetitions: int = Field(default=1, gt=0)
+    evidence: EvidenceSpec = Field(default_factory=EvidenceSpec)
     promotion: Promotion = Field(default_factory=Promotion)
     recipes: dict[str, Recipe] = Field(default_factory=dict)
     notes: str | None = None

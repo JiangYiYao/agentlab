@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
+from agentlab.provenance import atomic_json
 
 
 def new_run_id(root: Path) -> str:
@@ -35,6 +37,8 @@ def latest_run_id(root: Path) -> str | None:
 
 
 def load_manifest(root: Path, run_id: str) -> dict[str, Any] | None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
+        raise ValueError("invalid run id")
     path = runs_dir(root) / run_id / "manifest.json"
     if not path.is_file():
         return None
@@ -70,7 +74,7 @@ def write_manifest(root: Path, payload: dict[str, Any]) -> Path:
     dest = runs_dir(root) / run_id
     dest.mkdir(parents=True, exist_ok=True)
     path = dest / "manifest.json"
-    path.write_text(json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    atomic_json(path, payload)
     (runs_dir(root) / "LATEST").write_text(run_id + "\n", encoding="utf-8")
     return path
 
@@ -92,14 +96,21 @@ def archive_trial(root: Path, run_id: str, trial_id: str, *, reused_from: str | 
     out_src = src / "outputs"
     if out_src.is_dir():
         out_dest = dest / "outputs"
-        out_dest.mkdir(exist_ok=True)
-        for name in ("stdout.log", "stderr.log", "diff.html", "diff.json", "workspace.diff"):
-            log = out_src / name
-            if log.is_file():
-                shutil.copy2(log, out_dest / name)
-        after_src = out_src / "after"
-        if after_src.is_dir():
-            shutil.copytree(after_src, out_dest / "after", dirs_exist_ok=True)
+        if out_dest.exists():
+            shutil.rmtree(out_dest)
+        shutil.copytree(out_src, out_dest, symlinks=True)
+    def relocate(value):
+        if isinstance(value, str):
+            return value.replace(str(src) + "/outputs/", str(dest) + "/outputs/")
+        if isinstance(value, list):
+            return [relocate(item) for item in value]
+        if isinstance(value, dict):
+            return {key: relocate(item) for key, item in value.items()}
+        return value
+    for name in ("meta.json", "scores.json"):
+        path = dest / name
+        if path.is_file():
+            atomic_json(path, relocate(json.loads(path.read_text())))
     meta_path = dest / "meta.json"
     if meta_path.is_file() and reused_from:
         try:

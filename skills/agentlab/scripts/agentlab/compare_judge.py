@@ -2,13 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import shutil
-import subprocess
 from pathlib import Path
 from typing import Any
 
-from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
 from agentlab.judge import (
     criteria_for_judge,
     extract_json_payload,
@@ -20,6 +17,10 @@ from agentlab.models import Score, Trial
 from agentlab.runs import archive_trial, runs_dir
 from agentlab.schema import Concern, Experiment, judge_mode
 from agentlab.templates import resolve_argv
+from agentlab.evidence import copy_evidence
+from agentlab.runner.evaluation import judge_command
+from agentlab.errors import BudgetExceeded
+from agentlab.provenance import digest, measurement_basis
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -38,7 +39,22 @@ def run_compare_judges(exp: Experiment, root: Path, trials: list[Trial], run_id:
     written: list[Path] = []
     for (cell_id, case_id, repeat), group in sorted(groups.items()):
         dest = _compare_dir(root, run_id, cell_id, case_id, repeat)
-        result = spawn_compare(exp, root, group, concerns, dest)
+        basis = digest({"executions": sorted(t.execution_id or t.id for t in group),
+                        "measurements": {c.id: [measurement_basis(exp, t, c) for t in group] for c in concerns}})
+        previous = root / "runs" / (group[0].reused_from or "missing") / "compare" / dest.name
+        if all(t.reused and not t.force_score and t.compare_basis == basis for t in group) and (previous / "result.json").is_file():
+            if previous != dest:
+                shutil.copytree(previous, dest, dirs_exist_ok=True)
+            result = json.loads((dest / "result.json").read_text())
+        elif any(t.error_code or t.skipped for t in group):
+            result = {"mapping": _blind_mapping([t.variant.id for t in group], dest.name),
+                      "error": "execution_failed", "scores": {}}
+            dest.mkdir(parents=True, exist_ok=True)
+            _write_compare_result(dest, result["mapping"], result)
+        else:
+            result = spawn_compare(exp, root, group, concerns, dest)
+        for trial in group:
+            trial.compare_basis = basis
         _apply_compare_scores(group, concerns, result)
         for trial in group:
             _write_trial_scores(trial)
@@ -67,10 +83,10 @@ def spawn_compare(
     prompt = _case_prompt(group[0])
     if prompt:
         (dest / "prompt.md").write_text(prompt, encoding="utf-8")
-    criteria_src = root / "criteria.md"
+    criteria_src = root / exp.criteria.path
     if criteria_src.is_file():
         shutil.copy2(criteria_src, dest / "criteria.md")
-    excerpt = _compare_excerpt(root, concerns)
+    excerpt = _compare_excerpt(root, concerns, exp.criteria.path)
     (dest / "criteria-excerpt.md").write_text(excerpt, encoding="utf-8")
     stdin_text = _compare_stdin(group[0], concerns, mapping, excerpt, prompt)
     (dest / "stdin.md").write_text(stdin_text, encoding="utf-8")
@@ -87,37 +103,16 @@ def spawn_compare(
         return payload
     timeout_s = int(spec.timeout_s or 180)
     argv = resolve_argv(list(spec.command), root, {"experiment_root": str(root)})
-    env = {k: v for k, v in os.environ.items() if not k.startswith("AGENTLAB_")}
-    env.pop("AGENTLAB_VARIANT", None)
-    proc: subprocess.Popen | None = None
     stdout = stderr = b""
     try:
-        proc = subprocess.Popen(
-            argv,
-            cwd=str(dest),
-            env=env,
-            stdin=subprocess.PIPE,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            **start_session_kwargs(),
-        )
-        stdout, stderr = proc.communicate(input=stdin_text.encode(), timeout=timeout_s)
-    except subprocess.TimeoutExpired as exc:
-        stdout = exc.stdout or stdout
-        stderr = exc.stderr or stderr
-        if proc is not None and proc.pid:
-            kill_process_group(proc.pid)
-            try:
-                more_out, more_err = proc.communicate(timeout=5)
-                stdout = stdout or more_out
-                stderr = stderr or more_err
-            except subprocess.TimeoutExpired:
-                pass
-        payload["error"] = "judge_unavailable"
-        payload["error_detail"] = "judge timed out"
+        proc = judge_command(spec, argv, dest, dest, stdin_text, timeout_s, group[0].budget_tracker)
+        stdout, stderr = proc.stdout, proc.stderr
+        if proc.returncode != 0:
+            payload["error"] = "judge_unavailable"
+            payload["error_detail"] = f"judge exit {proc.returncode}"
+    except BudgetExceeded as exc:
+        payload["error"] = exc.reason
     except Exception as exc:
-        if proc is not None and proc.pid:
-            kill_process_group(proc.pid)
         payload["error"] = "judge_unavailable"
         payload["error_detail"] = str(exc)
     _write_judge_logs(dest, stdout, stderr)
@@ -153,6 +148,18 @@ def _blind_mapping(variant_ids: list[str], salt: str) -> dict[str, str]:
 
 
 def _pack_label(dest: Path, label: str, trial: Trial) -> None:
+    copy_evidence(trial, dest / "evidence" / label)
+    prompt_path = dest / "evidence" / label / "prompt.md"
+    if prompt_path.is_file():
+        text = prompt_path.read_text().replace(trial.id, label).replace(trial.variant.id, label)
+        prompt_path.write_text(text, encoding="utf-8")
+    manifest_path = dest / "evidence" / label / "manifest.json"
+    if manifest_path.is_file():
+        manifest = json.loads(manifest_path.read_text())
+        manifest.pop("execution_id", None)
+        for item in manifest.get("entries", []):
+            item.pop("source", None)
+        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
     (dest / "patches").mkdir(exist_ok=True)
     diff = trial.outputs_dir() / "workspace.diff"
     patch_dest = dest / "patches" / f"{label}.diff"
@@ -168,10 +175,10 @@ def _pack_label(dest: Path, label: str, trial: Trial) -> None:
         after_dest.mkdir(parents=True, exist_ok=True)
 
 
-def _compare_excerpt(root: Path, concerns: list[Concern]) -> str:
+def _compare_excerpt(root: Path, concerns: list[Concern], criteria_path: str = "criteria.md") -> str:
     parts = []
     for concern in concerns:
-        text = criteria_for_judge(root, concern.id)
+        text = criteria_for_judge(root, concern.id, criteria_path)
         if text.strip() and text.strip() not in parts:
             parts.append(text.strip())
     return "\n\n".join(parts)
@@ -189,7 +196,7 @@ def _compare_stdin(
     scores_shape = ",".join(f'"{c.id}":<number>' for c in concerns)
     parts = [
         "你是测评裁判，不是被测程序。",
-        "当前目录是同一道题的几份匿名答卷，不是完整仓库。",
+        "当前目录是同一道题的几份匿名答卷。evidence/<标记>/ 含回答、声明的文件和证据清单。",
         f"答卷标记为 {labels}。主材料是 patches/<标记>.diff 和 after/<标记>/ 里的改后文件。",
         "先读补丁和改后文件。只有对某一处有疑问时，再点名去看 after 里的对应路径。不要一上来全盘搜索。",
         "不要猜测标记对应哪一版。不要修改文件。不要输出分析散文。",
@@ -260,7 +267,7 @@ def _score_from_label(concern: Concern, blob: dict[str, Any], result: dict[str, 
                 pass_=False,
                 evidence={"error_code": "judge_bad_stdout", "compare": True},
             )
-    if isinstance(item, (int, float, bool)):
+    if isinstance(item, (int, float, bool)) and __import__("math").isfinite(float(item)):
         return Score(
             concern_id=concern.id,
             value=item,

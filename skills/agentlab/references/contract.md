@@ -81,3 +81,5 @@ promotion:
 被测程序往固定家目录写产物时，用 `type: homedir`，需要的家目录变量写在 `isolation.env_inject`。不要在 `cell.env` 里写 `HOME` 或同类家目录键（如 `CODEX_HOME` / `CLAUDE_CONFIG_DIR`）。
 
 `cases/main/prompt.md` 若要对 AI 下发 Skill，写明阅读并遵循 `${program_root}/SKILL.md`。不要把目录装进 `~/.claude/skills`。
+
+执行/评分分离、`rescore`、`evidence`、`measure.result`、声明输入和预算预留见 [lifecycle.md](lifecycle.md)。未知字段会被拒绝；只运行测试命令的 script 默认以退出码评分，读取 JSON 时显式指定 `result: json`。

@@ -140,7 +140,7 @@ def validate_experiment(exp: Experiment, root: Path, *, check_criteria_hash: boo
         if variant.role == "treatment" and variant.hypothesis is None:
             raise ContractError("treatment_missing_hypothesis", "treatment missing hypothesis", path=variant.id)
 
-    if exp.isolation.type == "git-worktree" and not exp.isolation.repo:
+    if (exp.isolation.type == "git-worktree" or any(c.isolation and c.isolation.type == "git-worktree" for c in exp.cases)) and not exp.isolation.repo:
         raise ContractError("worktree_missing_repo", "git-worktree requires isolation.repo")
 
     if exp.budget.usd is not None and exp.budget.per_trial.usd is None:
@@ -253,6 +253,63 @@ def validate_experiment(exp: Experiment, root: Path, *, check_criteria_hash: boo
         if exp.criteria.sha256 != digest:
             raise ContractError("criteria_hash_mismatch", "criteria.md hash does not match yaml")
 
+    supported = {"script", "gold_tree", "must_list", "workspace_diff", "label_extract", "section_present", "counterarg_inline", "no_upgrade", "path_under", "cost", "static_size", "llm_rubric"}
+    for concern in exp.concerns:
+        m = concern.measure
+        if m.type in {"no_upgrade", "counterarg_inline"} or (m.type == "label_extract" and not m.pattern):
+            warnings.append(f"{concern.id}: legacy investment evaluator; prefer explicit patterns or a script")
+        if m.type not in supported:
+            raise ContractError("unknown_field", f"unknown measure type {m.type!r}", path=concern.id)
+        if m.type == "script" and not m.command:
+            raise ContractError("missing_command", "script measure requires command", path=concern.id)
+        if m.result == "exit_code" and (m.output_json or m.value_path):
+            raise ContractError("unknown_field", "exit_code result cannot specify JSON output", path=concern.id)
+        if m.type == "must_list":
+            for spec in (m.keep, m.gone):
+                if spec and "${" not in spec and not (root / spec).is_file():
+                    raise ContractError("missing_evaluator_input", f"required list missing: {spec}", path=concern.id)
+        unused = {"variant_path", "higher_is_better", "model", "compare_root", "judge", "expected"} & m.model_fields_set
+        if unused:
+            raise ContractError("unknown_field", f"unsupported measure fields: {sorted(unused)}", path=concern.id)
+        if m.judge:
+            raise ContractError("unknown_field", "put judge at concern or experiment level", path=concern.id)
+        for key in (m.env or {}):
+            if key in {"HOME", "CODEX_HOME", "CLAUDE_CONFIG_DIR", "GIT_DIR", "GIT_WORK_TREE"} or key.startswith("AGENTLAB_"):
+                raise ContractError("reserved_env_key", f"measure.env cannot set {key}")
+    for case in exp.cases:
+        prompt = root / (case.path or f"cases/{case.id}") / case.prompt_file
+        if not prompt.is_file():
+            raise ContractError("missing_prompt", f"missing prompt: {prompt}")
+        if case.timeout_s is not None and case.timeout_s <= 0:
+            raise ContractError("unknown_field", "case.timeout_s must be positive")
+        for cell in exp.matrix.cells:
+            if not resolve_command(exp, cell, case):
+                raise ContractError("missing_command", f"missing command for {cell.id}/{case.id}")
+    def relative_path(value, label):
+        if Path(value).is_absolute() or ".." in Path(value).parts:
+            raise ContractError("unsafe_path", f"{label} must stay within its root: {value}")
+    relative_path(exp.isolation.subdir, "isolation.subdir")
+    for nested in exp.isolation.nested_repos or []:
+        relative_path(nested.path, "nested_repos.path")
+        if nested.path in {"", "."}:
+            raise ContractError("unsafe_path", "nested repository requires a child path")
+    for pattern in exp.evidence.files:
+        relative_path(pattern, "evidence.files")
+    if exp.artifact.layout == "inplace" and exp.isolation.nested_repos:
+        raise ContractError("unknown_field", "inplace artifacts cannot replace a workspace containing nested repositories")
+    for recipe in exp.recipes.values():
+        if recipe.write_files or recipe.usage or recipe.unstable_kill:
+            raise ContractError("unknown_field", "recipe write_files/usage/unstable_kill are not implemented; use the command and usage.json")
+    if any(c.measure.type == "llm_rubric" for c in exp.concerns):
+        if exp.budget.usd is not None and exp.budget.per_judge.usd is None:
+            raise ContractError("budget_reserve_required", "budget.usd with a judge requires per_judge.usd")
+        if exp.budget.tokens is not None and exp.budget.per_judge.tokens is None:
+            raise ContractError("budget_reserve_required", "budget.tokens with a judge requires per_judge.tokens")
+    for spec in [exp.judge, *[c.judge for c in exp.concerns]]:
+        if spec and spec.timeout_s is None:
+            warnings.append("judge timeout_s: null uses the evaluator default timeout")
+        if spec and (not spec.command or (spec.timeout_s is not None and spec.timeout_s <= 0)):
+            raise ContractError("unknown_field", "judge needs a command and positive timeout")
     return warnings
 
 

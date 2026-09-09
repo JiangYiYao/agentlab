@@ -1,18 +1,18 @@
 from __future__ import annotations
 
 import json
-import shutil
+import math
+from contextlib import ExitStack
 import subprocess
 import time
 from pathlib import Path
 
 from agentlab.adapters.isolation.process import kill_process_group, start_session_kwargs
 from agentlab.envfail import classify_env_error, env_stall_s
-from agentlab.errors import ContractError
 from agentlab.models import RunnerResult, Trial, Usage
 from agentlab.recipes import bound_command
 from agentlab.schema import Experiment
-from agentlab.templates import build_context, expand_templates, resolve_argv
+from agentlab.templates import expand_templates, resolve_argv
 
 
 class ShellRunner:
@@ -45,6 +45,7 @@ class ShellRunner:
         prompt_mode: str = "stdin",
         prompt_flag: str = "--prompt-file",
         on_start=None,
+        cancel_event=None,
     ) -> RunnerResult:
         out = trial.outputs_dir()
         out.mkdir(parents=True, exist_ok=True)
@@ -63,20 +64,16 @@ class ShellRunner:
         error_code = None
         killed = None
         try:
-            with stdout_path.open("wb") as so, stderr_path.open("wb") as se:
+            with ExitStack() as stack, stdout_path.open("wb") as so, stderr_path.open("wb") as se:
                 self._proc = subprocess.Popen(
                     final_argv,
                     cwd=str(cwd),
                     env=env,
-                    stdin=subprocess.PIPE,
+                    stdin=stack.enter_context(prompt_path.open("rb")) if stdin_data is not None else subprocess.DEVNULL,
                     stdout=so,
                     stderr=se,
                     **start_session_kwargs(),
                 )
-                if stdin_data is not None and self._proc.stdin is not None:
-                    self._proc.stdin.write(stdin_data.encode())
-                if self._proc.stdin is not None:
-                    self._proc.stdin.close()
                 if on_start and self._proc.pid:
                     on_start(self._proc.pid)
                 stall_s = env_stall_s()
@@ -84,6 +81,11 @@ class ShellRunner:
                 suspect_reason: str | None = None
                 last_size = 0
                 while True:
+                    if cancel_event is not None and cancel_event.is_set():
+                        _stop(self._proc)
+                        killed = "cancelled"
+                        error_code = "cancelled"
+                        break
                     try:
                         self._proc.wait(timeout=0.5)
                         break
@@ -123,6 +125,10 @@ class ShellRunner:
                 killed_reason=killed,
                 error_code=error_code,
             )
+        except BaseException:
+            if self._proc is not None:
+                _stop(self._proc)
+            raise
         wall = time.time() - started
         code = self._proc.returncode if self._proc is not None else 127
         if code is None:
@@ -198,7 +204,7 @@ def athlete_argv(exp: Experiment, trial: Trial, ctx: dict[str, str]) -> tuple[li
     argv = resolve_argv(raw, trial.experiment_root, ctx)
     prompt = trial.cell.prompt or (recipe.prompt if recipe else None)
     mode = prompt.mode if prompt else "stdin"
-    flag = prompt.flag or "--prompt-file"
+    flag = (prompt.flag if prompt else None) or "--prompt-file"
     return argv, mode, flag
 
 
@@ -209,6 +215,12 @@ def _read_usage(path: Path) -> Usage:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return Usage()
+    if not isinstance(data, dict):
+        return Usage()
+    for key in ("tokens_in", "tokens_out", "usd"):
+        value = data.get(key)
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value) or value < 0):
+            return Usage()
     tokens_in = data.get("tokens_in")
     tokens_out = data.get("tokens_out")
     usd = data.get("usd")
