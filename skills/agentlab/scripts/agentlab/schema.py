@@ -342,6 +342,19 @@ class EvidenceSpec(StrictModel):
     max_file_bytes: int = Field(default=4 * 1024 * 1024, gt=0)
 
 
+class TraceSpec(StrictModel):
+    files: list[str] = Field(default_factory=list)
+
+    @field_validator("files")
+    @classmethod
+    def relative_patterns(cls, values: list[str]) -> list[str]:
+        from pathlib import PurePosixPath
+        for value in values:
+            if not value or PurePosixPath(value).is_absolute() or ".." in PurePosixPath(value).parts or "\\" in value or "${" in value:
+                raise ValueError("trace.files must be relative patterns within trial outputs")
+        return values
+
+
 class Experiment(StrictModel):
     schema_version: Literal[1]
     id: str
@@ -359,6 +372,7 @@ class Experiment(StrictModel):
     judge: JudgeSpec | None = None
     repetitions: int = Field(default=1, gt=0)
     evidence: EvidenceSpec = Field(default_factory=EvidenceSpec)
+    trace: TraceSpec = Field(default_factory=TraceSpec)
     promotion: Promotion = Field(default_factory=Promotion)
     recipes: dict[str, Recipe] = Field(default_factory=dict)
     notes: str | None = None

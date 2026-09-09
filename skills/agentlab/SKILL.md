@@ -147,13 +147,28 @@ stdout 第一行就是要用的解释器（3.11+，已能 import pydantic / yaml
 
 用户确认后跑 `brief --confirm-criteria`。退出 0 再 `run --gate`（他说这次只比较、先不判断能不能用，就去掉 `--gate`）。对照组已有完整结果且口径没变时不要重跑，runner 会跳过；用户要重跑对照组时加 `--force`。跑完 `report`，读 `report.md` / `promotion.json`，按关注点讲。不要自己编分数。编码任务再打开 `runs/<run_id>/diff.html`（浏览器），按文件讲改了什么；裁判分数不能代替看 diff。`run --only-*` 只汇总这次展开的试验。同口径的已完成试验默认会复用（对照组可以不再跑）；要全部重跑加 `--no-reuse`。这次的 meta/score/日志会归档到 `runs/<run_id>/trials/`。报告里每一条都带 variant / cell / case / 第几次。没有设判定标准的关注点标成 observed_only，不要说 ok，也不要单凭它说能用。
 
-用了 `git-worktree` 时：讲完结果后问这次实验是否已经做完。用户说做完了，再 `cleanup --exp <实验目录>`，拆掉这次挂在测试仓上的 worktree。没说做完就留着。不要在他确认前拆，也不要自己执行 `git worktree remove`。
+用户明确结束实验或要求清理后，先用 `cleanup --exp <实验目录> --dry-run` 查看范围，再执行 `cleanup`，注销 worktree 并清理已归档的工作缓存。沿用已有授权，不重复确认同一范围；尚需排查的现场继续保留。查看占用用 `storage --exp <实验目录>`。清理范围、共享归档和旧目录兼容见 [references/storage.md](references/storage.md)，不要手动删除被历史引用的归档内容。
 
 `brief` 退出 2：读错误码，你改契约或再问缺的那一项，不要把栈甩给用户。`run --gate` 退出 1：说明哪一点不满足、所以这版不能用。退出 3：上限到了，或命令起不来（工作区未信任、未登录、模型/参数不对），整批停了、实验没跑完。对人说哪一类环境问题，不要当成改法没过。
 
 被测 skill 要在真实代码库里改代码时，**只读** `references/coding.md`，按那里的草稿写。通用字段不够再查 `references/contract.md`。除非 `brief` 失败、或跑出来的行为和文档不一致，否则不要读 `scripts/agentlab/` 里的实现。关注点按用户原话写，不要套某个领域的现成清单。
 
+## 审查评分
+
+每次运行、重评或查看历史结果后，先说明结论和依据，再主动附上当次 `runs/<run_id>/report.md` 与 `runs/<run_id>/audit.html` 的可点击绝对路径链接，简短说明审计页可以查看裁判提示词、原始回复和评分来源。确认文件存在并使用实际 run ID，不把占位符发给用户，也不让用户自己找目录。运行中断时，给出已有记录的入口，说明缺少哪些结果。
+
+汇报前检查失败、unknown 和影响推荐结论的评分依据。发现材料缺失、截断、裁判报错或理由不足时，主动说明具体问题，并附对应分数的审计锚点链接；不要等用户质疑才提。区分本轮新评分与复用旧分数，也区分裁判原始 `pass` 与最终汇总判定。链接供用户复核，结论和问题仍由你解释。
+
+解释有争议的分数时，从报告里该分数的「审计」链接打开 `runs/<run_id>/audit.html`，核对归档任务、标准、完整裁判输入、原始回复和解析结果，并说明本轮是新评分还是复用旧分数。需要排查提示词或前后口径时，按 [references/audit.md](references/audit.md) 对比。只查看历史不会调用模型；不要用当前文件补写历史依据，也不要把“材料已提供”说成“模型已经读过”。
+
+## 排查实验组表现
+
+汇报结果时还要主动提供 `runs/<run_id>/execution.html` 的实际绝对路径链接。读取 `diagnostics.json`，对失败、unknown 和影响推荐的较弱 case，按 [references/execution-audit.md](references/execution-audit.md) 检查同条件的对照组、运行前 Skill、任务、执行轨迹及产物。说明已证实的问题、可能原因和缺失证据，不能把低分直接归因于 Skill，也不要只把链接交给用户自己分析。未配置好坏方向时不按指标名称猜测优劣。
+
+用户需要过程排查时，在已确认的执行方式下检查包装脚本能否导出本次工具调用、错误及子任务记录到 `${trial_out}`，通过 `trace.files` 声明；没有导出能力则说明限制。不要读取无关全局会话，也不要为收集轨迹擅自换模型、禁用子任务或改变任务约束。读取已有材料不会重跑实验；需要新执行才能验证原因时，先说明最小验证及已有授权是否覆盖。
+
 ## 禁止
+
 
 - 自己执行 `git worktree add` / `git worktree remove`（编码任务在契约里写 `isolation.type: git-worktree`，由 runner 建；测完须用户确认做完后再 `cleanup`）
 - 把任务要改的那份代码库整仓拷进 `variants/`（只拷被测 skill）

@@ -35,10 +35,8 @@ class FileLock:
         finally:
             os.close(self._fd)
             self._fd = None
-            try:
-                self.path.unlink()
-            except OSError:
-                pass
+            # Keep the inode stable: unlinking allows a new caller to acquire a
+            # different lock file while an existing waiter holds the old inode.
 
 
 @contextmanager

@@ -7,6 +7,19 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 from agentlab.provenance import atomic_json
+from agentlab.schema import Experiment
+from agentlab.storage import archive_outputs
+
+
+def with_run_repetitions(exp: Experiment, manifest: dict[str, Any] | None) -> Experiment:
+    """Use the run's effective sample count while keeping current evaluation rules."""
+    if manifest:
+        count = (manifest.get("experiment") or {}).get("repetitions")
+        if count is None:
+            count = (manifest.get("overrides") or {}).get("repetitions")
+        if count is not None:
+            return exp.model_copy(update={"repetitions": count})
+    return exp
 
 
 def new_run_id(root: Path) -> str:
@@ -95,10 +108,10 @@ def archive_trial(root: Path, run_id: str, trial_id: str, *, reused_from: str | 
             shutil.copy2(src_file, dest / name)
     out_src = src / "outputs"
     if out_src.is_dir():
-        out_dest = dest / "outputs"
-        if out_dest.exists():
-            shutil.rmtree(out_dest)
-        shutil.copytree(out_src, out_dest, symlinks=True)
+        meta = json.loads((src / "meta.json").read_text()) if (src / "meta.json").is_file() else {}
+        evaluation = root / "evaluations" / run_id / "trials" / trial_id
+        previous = root / "runs" / reused_from / "trials" / trial_id / "outputs" if reused_from else None
+        archive_outputs(root, out_src, dest / "outputs", evaluation, meta.get("execution_id"), previous=previous)
     def relocate(value):
         if isinstance(value, str):
             return value.replace(str(src) + "/outputs/", str(dest) + "/outputs/")
@@ -111,6 +124,8 @@ def archive_trial(root: Path, run_id: str, trial_id: str, *, reused_from: str | 
         path = dest / name
         if path.is_file():
             atomic_json(path, relocate(json.loads(path.read_text())))
+            if out_src.is_dir():
+                shutil.copy2(path, evaluation / name)
     meta_path = dest / "meta.json"
     if meta_path.is_file() and reused_from:
         try:

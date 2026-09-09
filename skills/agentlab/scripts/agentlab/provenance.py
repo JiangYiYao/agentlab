@@ -8,6 +8,20 @@ from pathlib import Path
 
 from agentlab.schema import Experiment, Concern
 from agentlab.models import Trial
+from agentlab.templates import build_context, expand_templates
+
+
+def dependency_context(exp: Experiment, trial: Trial) -> dict[str, str]:
+    root = trial.experiment_root
+    ctx = build_context(exp=exp, experiment_root=root, variant_id=trial.variant.id,
+                        cell_id=trial.cell.id, case_id=trial.case.id, trial_id=trial.id,
+                        cell_model=trial.cell.model,
+                        case_path=str((root / (trial.case.path or f"cases/{trial.case.id}")).resolve()),
+                        program_root=(root / trial.variant.path).resolve())
+    # These locations contain execution products, not independent input files.
+    # Their identity comes from the execution basis, never an editable old workspace.
+    ctx.update({key: "${" + key + "}" for key in ("sandbox", "project_root", "trial_out")})
+    return ctx
 
 
 def digest(value) -> str:
@@ -28,11 +42,12 @@ def tree_digest(path: Path) -> str:
     return digest(items)
 
 
-def dependency_hashes(root: Path, specs: list[str]) -> dict[str, str]:
+def dependency_hashes(root: Path, specs: list[str], ctx: dict[str, str] | None = None) -> dict[str, str]:
     out = {}
     for spec in specs:
+        spec = expand_templates(spec, ctx or {"experiment_root": str(root)})
         if "${" in spec:
-            spec = spec.replace("${experiment_root}", str(root))
+            continue
         path = Path(spec).expanduser()
         if not path.is_absolute():
             path = root / path
@@ -40,10 +55,12 @@ def dependency_hashes(root: Path, specs: list[str]) -> dict[str, str]:
     return out
 
 
-def command_files(root: Path, command: list[str]) -> dict[str, str]:
+def command_files(root: Path, command: list[str], ctx: dict[str, str] | None = None) -> dict[str, str]:
     files = []
     for i, arg in enumerate(command):
-        arg = arg.replace("${experiment_root}", str(root))
+        arg = expand_templates(arg, ctx or {"experiment_root": str(root)})
+        if "${" in arg:
+            continue
         if i == 0:
             arg = shutil.which(arg) or arg
         path = Path(arg)
@@ -59,6 +76,7 @@ def execution_basis(exp: Experiment, trial: Trial) -> str:
     from agentlab.recipes import bound_command
     root = trial.experiment_root
     command, recipe = bound_command(exp, trial.cell, trial.case, root)
+    ctx = dependency_context(exp, trial)
     case = trial.case.model_dump(mode="json", exclude={"expected_labels", "require_exit_0"})
     prompt = root / (trial.case.path or f"cases/{trial.case.id}") / trial.case.prompt_file
     return digest({
@@ -66,28 +84,30 @@ def execution_basis(exp: Experiment, trial: Trial) -> str:
         "variant": tree_digest(root / trial.variant.path),
         "artifact": exp.artifact.model_dump(mode="json"),
         "case": case, "prompt": tree_digest(prompt),
-        "inputs": dependency_hashes(root, trial.case.inputs),
+        "inputs": dependency_hashes(root, trial.case.inputs, ctx),
         "cell": trial.cell.model_dump(mode="json"),
         "recipe": recipe.model_dump(mode="json") if recipe else None,
-        "command_files": command_files(root, command),
+        "command_files": command_files(root, command, ctx),
         "isolation": exp.isolation.model_dump(mode="json", exclude={"keep_sandbox", "keep_on_fail", "protected_paths"}),
         "limits": exp.budget.per_trial.model_dump(mode="json"),
         "evidence": exp.evidence.model_dump(mode="json"),
+        **({"trace": exp.trace.model_dump(mode="json")} if exp.trace.files else {}),
     })
 
 
 def measurement_basis(exp: Experiment, trial: Trial, concern: Concern) -> str:
     root = trial.experiment_root
     measure = concern.measure
+    ctx = dependency_context(exp, trial)
     refs = list(measure.inputs)
     for spec in (measure.keep, measure.gone, measure.gold_dir, measure.source):
         if spec and "${trial_out}" not in spec and "${project_root}" not in spec and "${report_path}" not in spec:
             refs.append(spec)
     data = {
-        "engine": 2, "execution": trial.execution_basis,
-        "measure": measure.model_dump(mode="json"),
-        "dependencies": dependency_hashes(root, refs),
-        "command_files": command_files(root, measure.command or []),
+        "engine": 3, "execution": trial.execution_basis,
+        "measure": {**measure.model_dump(mode="json"), "higher_is_better": None},
+        "dependencies": dependency_hashes(root, refs, ctx),
+        "command_files": command_files(root, measure.command or [], ctx),
         "expected": trial.case.expected_labels,
         "expected_file": tree_digest(root / (trial.case.path or f"cases/{trial.case.id}") / "expected_labels.yaml"),
     }
@@ -95,7 +115,7 @@ def measurement_basis(exp: Experiment, trial: Trial, concern: Concern) -> str:
         spec = concern.judge or exp.judge
         data.update(criteria=tree_digest(root / exp.criteria.path), intent=concern.intent,
                     judge=spec.model_dump(mode="json") if spec else None,
-                    judge_files=command_files(root, spec.command if spec else []))
+                    judge_files=command_files(root, spec.command if spec else [], ctx))
     return digest(data)
 
 

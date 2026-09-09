@@ -51,11 +51,15 @@ Agent 会先读相关目录，整理一份具体的测试计划：比较哪些�
 | 内容 | 在哪里看 |
 |---|---|
 | 各版本的结果、评分和耗时 | 实验目录中的 `report.md` |
-| 本次使用的配置和评价标准 | `experiment.yaml`、`criteria.md` |
+| 当次使用的配置和评价标准 | `runs/<run_id>/manifest.json`、`runs/<run_id>/criteria.md` |
 | 每次运行的输出、日志和评分依据 | `runs/<run_id>/trials/` |
+| 每条分数的提示词、原始回复和复用来源 | 报告中的「审计」链接，打开 `runs/<run_id>/audit.html` |
+| 某个 case 为什么比对照差 | 报告中的「排查执行」链接，打开 `runs/<run_id>/execution.html` |
 | 编码任务的文件改动 | `runs/<run_id>/diff.html` |
 
 记录保存在本机；执行时是否调用外部服务，取决于你选择的命令和评审模型。
+
+觉得某个分数不合理时，可以从它旁边的「审计」入口检查：裁判收到了什么任务和标准、有哪些材料、原话怎么说、最后如何解析成分数。页面也会对比前一次评分，便于发现提示词改动或评分口径变化。它展示已保存的调用记录，不能证明模型实际读了每份材料。
 
 ## 继续比较，不必每次从头跑
 
@@ -76,6 +80,9 @@ AgentLab 会检查版本内容、任务输入和执行配置，复用仍然适�
 - [实验配置](skills/agentlab/references/contract.md)：用例、执行命令、评分和预算字段。
 - [编码任务](skills/agentlab/references/coding.md)：在真实 Git 仓库中测试代码改动。
 - [执行与重评](skills/agentlab/references/lifecycle.md)：结果复用、证据保留、重试和兼容性。
+- [存储与清理](skills/agentlab/references/storage.md)：目录结构、空间占用、缓存回收和旧实验兼容。
+- [审查评分](skills/agentlab/references/audit.md)：阅读裁判输入、追溯分数来源、比较前后评审。
+- [排查实验表现](skills/agentlab/references/execution-audit.md)：对比运行前输入、执行轨迹和产物，区分事实与可能原因。
 - [Skill 使用指引](skills/agentlab/SKILL.md)：供 agent 阅读的完整工作流程。
 
 ## 本地开发
@@ -89,6 +96,6 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-开发安装后可使用 `agentlab --help` 查看 CLI。主要命令有 `brief`（检查实验配置）、`run`（执行）、`rescore`（重评）、`report`（生成报告）、`status`（查看进度）和 `cleanup`（清理实验工作区）。
+开发安装后可使用 `agentlab --help` 查看 CLI。主要命令有 `brief`（检查实验配置）、`run`（执行）、`rescore`（重评）、`report`（生成报告）、`status`（查看进度）、`storage`（查看空间占用）和 `cleanup`（清理工作区及已归档缓存）。
 
 采用 [MIT 协议](LICENSE)。

@@ -15,7 +15,6 @@ from agentlab.errors import ContractError
 from agentlab.paths import resolve_exp_dir
 from agentlab.promote import promote
 from agentlab.report import write_report
-from agentlab.adapters.isolation.worktree import cleanup_experiment_worktrees, resolve_repo
 from agentlab.runs import latest_run_id, load_manifest
 from agentlab.scheduler import run_experiment
 from agentlab.schema import (
@@ -29,6 +28,7 @@ from agentlab.schema import (
 )
 from agentlab.secrets_scan import scan_experiment_secrets
 from agentlab.stats import preview_cost
+from agentlab.storage import cleanup as cleanup_storage, usage as storage_usage
 from agentlab.validate import load_experiment, load_raw, validate_experiment, write_criteria_hash
 
 HINTS = {
@@ -393,26 +393,28 @@ def _cmd_report(args: argparse.Namespace) -> int:
 def _cmd_cleanup(args: argparse.Namespace) -> int:
     try:
         exp_dir = _resolve_exp(args)
-        exp = _load_valid(exp_dir)
-        if exp.isolation.type != "git-worktree" or not exp.isolation.repo:
-            print("no leftover worktrees")
-            return 0
-        repo = resolve_repo(exp.isolation.repo, exp_dir)
-        if not repo.exists():
-            print("no leftover worktrees")
-            return 0
-        removed = cleanup_experiment_worktrees(
-            repo, exp_dir, nested_repos=list(exp.isolation.nested_repos or [])
-        )
-        if not removed:
-            print("no leftover worktrees")
-            return 0
-        for path in removed:
-            print(path)
+        result = cleanup_storage(exp_dir, dry_run=args.dry_run)
+        print(json.dumps(result, indent=2, ensure_ascii=False))
         return 0
     except ContractError as exc:
         _print_contract_error(exc)
         return 2
+    except FileNotFoundError as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
+
+
+def _cmd_storage(args: argparse.Namespace) -> int:
+    try:
+        result = storage_usage(_resolve_exp(args))
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(f"stored: {result['bytes']:,} bytes")
+            for name, item in result['categories'].items():
+                print(f"  {name}: {item['bytes']:,} bytes, {item['files']} files, {item['references']} references")
+            print(result['note'])
+        return 0
     except FileNotFoundError as exc:
         print(str(exc), file=sys.stderr)
         return 2
@@ -529,7 +531,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     cleanup = sub.add_parser("cleanup")
     cleanup.add_argument("--exp")
+    cleanup.add_argument("--dry-run", action="store_true", help="preview workspaces and archived caches to remove")
     cleanup.set_defaults(func=_cmd_cleanup)
+
+    storage = sub.add_parser("storage")
+    storage.add_argument("--exp")
+    storage.add_argument("--json", action="store_true")
+    storage.set_defaults(func=_cmd_storage)
 
     status = sub.add_parser("status")
     status.add_argument("--exp")

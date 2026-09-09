@@ -33,12 +33,14 @@ from agentlab.compare_judge import run_compare_judges
 from agentlab.diffreport import write_run_diff, write_trial_diff
 from agentlab.models import Score, Trial, Sandbox, RunnerResult, Usage
 from agentlab.recipes import bound_command
+from agentlab.execution_audit import capture_inputs, capture_trace
 from agentlab.runner.shell import ShellRunner, athlete_argv
-from agentlab.runs import archive_trial, latest_run_id, load_manifest, new_run_id, update_manifest, write_manifest
+from agentlab.runs import archive_trial, latest_run_id, load_manifest, new_run_id, update_manifest, write_manifest, with_run_repetitions
 from agentlab.schema import Experiment, fingerprint_contract, fingerprint_score_basis
 from agentlab.templates import build_context
 from agentlab.provenance import execution_basis, measurement_basis, atomic_json, tree_digest
 from agentlab.evidence import capture_evidence
+from agentlab.storage import init_storage, save_execution, latest_trial, materialize, finish_cache, execution_path
 
 
 def _iso_kind(exp: Experiment, trial: Trial) -> str:
@@ -100,6 +102,7 @@ def _write_meta(trial: Trial, extra: dict[str, Any], *, score_basis: str | None 
             "execution_basis": trial.execution_basis,
             "measurement_basis": trial.measurement_basis,
             "compare_basis": trial.compare_basis,
+            "evaluation_events": trial.evaluation_events,
             "stage_times": trial.stage_times,
             "evidence_digest": tree_digest(trial.outputs_dir() / "evidence"),
             "sandbox": str(trial.sandbox.root) if trial.sandbox else None,
@@ -245,6 +248,15 @@ def run_experiment(
         overrides["repetitions"] = repetitions
     if max_parallel is not None:
         overrides["max_parallel"] = max_parallel
+    if rescore:
+        source_run = source_run or latest_run_id(root)
+        source_manifest = load_manifest(root, source_run) if source_run else None
+        if not source_manifest:
+            raise ContractError("execution_unavailable", "rescore requires an existing run")
+        exp = with_run_repetitions(exp, source_manifest)
+        only_variant = only_variant or source_manifest.get("only_variant")
+        only_cell = only_cell or source_manifest.get("only_cell")
+        only_case = only_case or source_manifest.get("only_case")
     trials = filter_trials(
         expand(exp, root),
         only_variant=only_variant,
@@ -252,10 +264,6 @@ def run_experiment(
         only_case=only_case,
     )
     if rescore:
-        source_run = source_run or latest_run_id(root)
-        source_manifest = load_manifest(root, source_run) if source_run else None
-        if not source_manifest:
-            raise ContractError("execution_unavailable", "rescore requires an existing run")
         wanted = set(source_manifest.get("planned") or [])
         trials = [t for t in trials if t.id in wanted]
     if dry_expand:
@@ -292,6 +300,7 @@ def run_experiment(
         "source_run": source_run,
     }
     try:
+        init_storage(root, run_id)
         write_manifest(root, manifest)
         atomic_json(root / "runs" / run_id / "experiment.json", exp.model_dump(mode="json", by_alias=True))
         shutil.copy2(root / exp.criteria.path, root / "runs" / run_id / "criteria.md")
@@ -381,6 +390,8 @@ def run_experiment(
         )
         write_run_diff(root, run_id, planned_ids)
         _print_summary(exp, records, promo, gate, trials=trials, run_id=run_id, root=root)
+        for trial in trials:
+            finish_cache(root, trial.id, run_id)
         return code, promo, trials
     except BaseException as exc:
         update_manifest(root, run_id, status="interrupted" if isinstance(exc, KeyboardInterrupt) else "failed", error=str(exc))
@@ -405,6 +416,11 @@ def freeze_experiment(exp: Experiment, root: Path) -> Experiment:
 def _restore_completed(trial: Trial, exp: Experiment, *, retry_failed=False, source_run=None) -> bool:
     root = trial.experiment_root
     src = root / "runs" / source_run / "trials" / trial.id if source_run else trial.trial_dir()
+    if not (src / "meta.json").is_file() and not source_run:
+        saved = latest_trial(root, trial.id)
+        if saved:
+            src = saved
+            source_run = saved.parent.parent.name
     try:
         meta = json.loads((src / "meta.json").read_text())
         scores = [Score.from_json(x) for x in json.loads((src / "scores.json").read_text())]
@@ -418,9 +434,7 @@ def _restore_completed(trial: Trial, exp: Experiment, *, retry_failed=False, sou
         trial.retried = True
         return False
     if source_run and src != trial.trial_dir():
-        if trial.trial_dir().exists():
-            shutil.rmtree(trial.trial_dir())
-        shutil.copytree(src, trial.trial_dir(), symlinks=True)
+        materialize(src, trial.trial_dir())
     if source_run:
         # Paths in an archive point at that archive; new scoring uses the restored working copy.
         for score in scores:
@@ -429,6 +443,7 @@ def _restore_completed(trial: Trial, exp: Experiment, *, retry_failed=False, sou
     trial.scores = scores
     trial.measurement_basis = meta.get("measurement_basis") or {}
     trial.compare_basis = meta.get("compare_basis")
+    trial.previous_evaluations = meta.get("evaluation_events") or {}
     trial.execution_id = meta["execution_id"]
     trial.reused_from = source_run or meta.get("run_id")
     trial.error_code = meta.get("execution_error") or (meta.get("error_code") if meta.get("error_code") in {"isolation_leak", "wrong_skill_tree"} else None)
@@ -487,6 +502,7 @@ def _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, *, force=Fal
     iso = None
     protected = {}
     trial.budget_tracker = tracker
+    trial.run_id = run_id
     try:
         trial.execution_basis = execution_basis(exp, trial)
         protected = _protected_snapshot(exp, root)
@@ -510,6 +526,8 @@ def _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, *, force=Fal
                 trial.scores = score_concerns(trial, exp, ctx, env)
                 trial.stage_times["evaluation_s"] = time.time() - started
                 for gid in SYSTEM_GATES:
+                    if gid not in trial.evaluation_events:
+                        trial.record_evaluation(gid, "system", "reused" if gid in trial.cached_scores else "not_run")
                     trial.scores.append(trial.cached_scores.get(gid, Score(concern_id=gid, unknown=True, pass_=False)))
             return
         # Every physical execution owns a fresh workspace. Kept worktrees remain in their original run.
@@ -517,7 +535,7 @@ def _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, *, force=Fal
             shutil.rmtree(trial.trial_dir())
         trial.outputs_dir().mkdir(parents=True)
         trial.execution_id = f"{run_id}:{trial.id}"
-        trial.sandbox_path = root / "runs" / run_id / "workspaces" / trial.id
+        trial.sandbox_path = root / "workspaces" / run_id / trial.id
         iso = _make_isolation(exp, trial, root)
         _, recipe = bound_command(exp, trial.cell, trial.case, root)
         inherit = _inherit(exp, trial, recipe.inherit_host_identity if recipe else None)
@@ -536,6 +554,7 @@ def _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, *, force=Fal
         runner = ShellRunner(exp)
         prompt_path = runner.prepare(trial, ctx)
         argv, mode, flag = athlete_argv(exp, trial, ctx)
+        capture_inputs(trial, exp, program, prompt_path)
         def on_start(pid):
             _write_meta(trial, {"pid": pid, "pgid": pid, "phase": "running", "command": argv, "requested_model": trial.cell.model}, score_basis=fingerprint_score_basis(exp))
         with tracker.trial_watch(trial):
@@ -553,7 +572,9 @@ def _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, *, force=Fal
             tracker.exceeded_reason = "timeout"
         trial.stage_times["execution_s"] = trial.result.wall_clock_s
         write_trial_diff(trial)
+        capture_trace(trial, exp)
         capture_evidence(trial, exp)
+        save_execution(trial)
         if trial.error_code:
             if trial.error_code == "env_unusable" and abort_env is not None:
                 abort_env.set()
@@ -574,6 +595,7 @@ def _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, *, force=Fal
             known = {score.concern_id for score in trial.scores}
             for gid, ok in (("__isolation_leak__", not leaked), ("__wrong_skill_tree__", not wrong_tree)):
                 if gid not in known:
+                    trial.record_evaluation(gid, "system", "evaluated")
                     trial.scores.append(Score(concern_id=gid, value=ok, pass_=ok, evidence={"changed_protected_paths": changed} if leaked else {}))
             if leaked or wrong_tree:
                 trial.error_code = "isolation_leak" if leaked else "wrong_skill_tree"
@@ -589,12 +611,16 @@ def _run_one(exp, root, trial, tracker, leaks_before, keep_sandbox, *, force=Fal
         changed = [path for path, before in protected.items() if tree_digest(Path(path)) != before]
         if changed:
             trial.error_code = "isolation_leak"
+            trial.record_evaluation("__isolation_leak__", "system", "evaluated")
             trial.scores = [s for s in trial.scores if s.concern_id != "__isolation_leak__"]
             trial.scores.append(Score(concern_id="__isolation_leak__", value=False, pass_=False,
                                       evidence={"changed_protected_paths": changed}))
         trial.trial_dir().mkdir(parents=True, exist_ok=True)
         _write_meta(trial, {"phase": "skipped" if trial.skipped else "failed" if trial.error_code else "completed", "run_id": run_id}, score_basis=fingerprint_score_basis(exp))
         _write_scores(trial)
+        if trial.execution_id and not trial.reused and not (execution_path(root, trial.execution_id) / "manifest.json").is_file():
+            capture_trace(trial, exp)
+            save_execution(trial)
         if run_id:
             archive_trial(root, run_id, trial.id, reused_from=trial.reused_from)
         if iso and trial.sandbox and not trial.reused:

@@ -17,10 +17,11 @@ from agentlab.models import Score, Trial
 from agentlab.runs import archive_trial, runs_dir
 from agentlab.schema import Concern, Experiment, judge_mode
 from agentlab.templates import resolve_argv
-from agentlab.evidence import copy_evidence
+from agentlab.evidence import copy_evidence, describe_materials
 from agentlab.runner.evaluation import judge_command
 from agentlab.errors import BudgetExceeded
 from agentlab.provenance import digest, measurement_basis
+from agentlab.storage import link_view, freeze_compare
 
 LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 
@@ -42,19 +43,27 @@ def run_compare_judges(exp: Experiment, root: Path, trials: list[Trial], run_id:
         basis = digest({"executions": sorted(t.execution_id or t.id for t in group),
                         "measurements": {c.id: [measurement_basis(exp, t, c) for t in group] for c in concerns}})
         previous = root / "runs" / (group[0].reused_from or "missing") / "compare" / dest.name
+        evaluation_status = "evaluated"
         if all(t.reused and not t.force_score and t.compare_basis == basis for t in group) and (previous / "result.json").is_file():
+            evaluation_status = "reused"
             if previous != dest:
-                shutil.copytree(previous, dest, dirs_exist_ok=True)
+                link_view(previous.resolve(), dest)
             result = json.loads((dest / "result.json").read_text())
         elif any(t.error_code or t.skipped for t in group):
+            evaluation_status = "not_run"
             result = {"mapping": _blind_mapping([t.variant.id for t in group], dest.name),
                       "error": "execution_failed", "scores": {}}
             dest.mkdir(parents=True, exist_ok=True)
             _write_compare_result(dest, result["mapping"], result)
         else:
             result = spawn_compare(exp, root, group, concerns, dest)
+        if run_id:
+            freeze_compare(root, run_id, dest)
         for trial in group:
             trial.compare_basis = basis
+            for concern in concerns:
+                trial.record_evaluation(concern.id, "llm_rubric", evaluation_status,
+                                        reason=result.get("error") if evaluation_status == "not_run" else None)
         _apply_compare_scores(group, concerns, result)
         for trial in group:
             _write_trial_scores(trial)
@@ -88,7 +97,13 @@ def spawn_compare(
         shutil.copy2(criteria_src, dest / "criteria.md")
     excerpt = _compare_excerpt(root, concerns, exp.criteria.path)
     (dest / "criteria-excerpt.md").write_text(excerpt, encoding="utf-8")
-    stdin_text = _compare_stdin(group[0], concerns, mapping, excerpt, prompt)
+    materials = []
+    for label in mapping:
+        materials.append(f"### 答卷 {label}")
+        materials.extend(describe_materials(dest / "evidence" / label, f"evidence/{label}",
+                         patch=dest / "patches" / f"{label}.diff", patch_label=f"patches/{label}.diff",
+                         after_label=f"after/{label}/"))
+    stdin_text = _compare_stdin(group[0], concerns, mapping, excerpt, prompt, materials)
     (dest / "stdin.md").write_text(stdin_text, encoding="utf-8")
     payload: dict[str, Any] = {
         "cell_id": group[0].cell.id,
@@ -103,7 +118,7 @@ def spawn_compare(
         return payload
     timeout_s = int(spec.timeout_s or 180)
     argv = resolve_argv(list(spec.command), root, {"experiment_root": str(root)})
-    stdout = stderr = b""
+    stdout = stderr = None
     try:
         proc = judge_command(spec, argv, dest, dest, stdin_text, timeout_s, group[0].budget_tracker)
         stdout, stderr = proc.stdout, proc.stderr
@@ -190,6 +205,7 @@ def _compare_stdin(
     mapping: dict[str, str],
     excerpt: str,
     prompt: str,
+    materials: list[str] | None = None,
 ) -> str:
     labels = ", ".join(mapping)
     concern_ids = ", ".join(c.id for c in concerns)
@@ -197,8 +213,7 @@ def _compare_stdin(
     parts = [
         "你是测评裁判，不是被测程序。",
         "当前目录是同一道题的几份匿名答卷。evidence/<标记>/ 含回答、声明的文件和证据清单。",
-        f"答卷标记为 {labels}。主材料是 patches/<标记>.diff 和 after/<标记>/ 里的改后文件。",
-        "先读补丁和改后文件。只有对某一处有疑问时，再点名去看 after 里的对应路径。不要一上来全盘搜索。",
+        f"答卷标记为 {labels}。按任务和标准比较各份回答及产出，材料位置见下文。",
         "不要猜测标记对应哪一版。不要修改文件。不要输出分析散文。",
         "stdout 给一篇 JSON 对象（前后可以有日志；不要用 markdown 围栏）：",
         "{"
@@ -209,6 +224,7 @@ def _compare_stdin(
         '"evidence":{}'
         "}",
         f"scores 里为这些关注点打分：{concern_ids}。",
+        '无法判断的关注点用 {"unknown":true,"evidence":{"reason":"缺少什么"}} 代替数字，不要猜分。',
         "",
         "## 这次对比",
         f"cell_id: {sample.cell.id}",
@@ -222,7 +238,7 @@ def _compare_stdin(
     parts += ["## 标准", excerpt.strip(), ""]
     parts += [
         "## 材料",
-        "patches/ 下是各份补丁，after/ 下是各份改后文件。当前目录不是完整代码仓。",
+        *(materials or ["按 evidence/<标记>/manifest.json 检查可用材料，再阅读任务相关的回答和产出文件。"]),
         "",
     ]
     return "\n".join(parts)

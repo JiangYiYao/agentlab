@@ -9,12 +9,12 @@ from pathlib import Path
 from agentlab.models import Score, Trial
 from agentlab.schema import Concern, Experiment
 from agentlab.templates import resolve_argv
-from agentlab.evidence import copy_evidence
+from agentlab.evidence import copy_evidence, describe_materials
 from agentlab.runner.evaluation import judge_command
 from agentlab.errors import BudgetExceeded
 
 JUDGE_PREAMBLE = """你是测评裁判，不是被测程序。
-当前工作目录就是待评代码根。不要修改文件。
+当前目录提供本次试验的评审材料。不要修改文件。
 只评下面标明的这一次试验、这一个关注点。任务说明和标准写了评什么，就评什么。
 不要输出分析散文。stdout 里给出一篇 JSON 对象（前后可以有日志；不要用 markdown 围栏）：
 {"concern_id":"<id>","value":<number|bool>,"unit":"<string|null>","pass":<true|false>,"soft":<bool>,"unknown":false,"evidence":{}}
@@ -112,11 +112,16 @@ def spawn_judge(trial: Trial, concern: Concern, exp: Experiment, timeout_s: int)
         shutil.copy2(diff_src, view / "changes.diff")
     if not workspace.exists() and (view / "evidence" / "workspace").is_dir():
         shutil.copytree(view / "evidence" / "workspace", workspace)
-    stdin_text = _judge_stdin(trial, concern, excerpt, prompt, change_summary)
-    (view / "stdin.md").write_text(stdin_text, encoding="utf-8")
     cwd = workspace if workspace.is_dir() else view
+    prefix = ".." if cwd == workspace else "."
+    materials = describe_materials(view / "evidence", f"{prefix}/evidence",
+                                   patch=view / "changes.diff", patch_label=f"{prefix}/changes.diff",
+                                   workspace_label="." if cwd == workspace else None)
+    materials.append(f"任务和标准：{prefix}/prompt.md、{prefix}/criteria.md；本次试验信息：{prefix}/trial.json。")
+    stdin_text = _judge_stdin(trial, concern, excerpt, prompt, change_summary, materials)
+    (view / "stdin.md").write_text(stdin_text, encoding="utf-8")
     argv = resolve_argv(list(spec.command), trial.experiment_root, {"experiment_root": str(trial.experiment_root)})
-    stdout = stderr = b""
+    stdout = stderr = None
     try:
         proc = judge_command(spec, argv, cwd, view, stdin_text, timeout_s, trial.budget_tracker)
         stdout, stderr = proc.stdout, proc.stderr
@@ -213,7 +218,8 @@ def _change_summary(trial: Trial) -> str:
     return ""
 
 
-def _judge_stdin(trial: Trial, concern: Concern, excerpt: str, prompt: str, change_summary: str) -> str:
+def _judge_stdin(trial: Trial, concern: Concern, excerpt: str, prompt: str, change_summary: str,
+                 materials: list[str] | None = None) -> str:
     parts = [
         JUDGE_PREAMBLE,
         "",
@@ -232,9 +238,8 @@ def _judge_stdin(trial: Trial, concern: Concern, excerpt: str, prompt: str, chan
     if change_summary.strip():
         parts += ["## 改动摘要", change_summary.strip(), ""]
     parts += [
-        "## 工作区",
-        "当前目录提供本次产物；evidence/（或上级 evidence/）含回答 stdout.log、文件和证据清单。",
-        "上级目录有 criteria.md（全文）、prompt.md、trial.json；若有改动补丁则是 changes.diff。",
+        "## 材料",
+        *(materials or ["根据证据清单选择任务相关的回答、文件和执行记录。"]),
         "不要修改这些文件。",
         "",
     ]
@@ -243,7 +248,9 @@ def _judge_stdin(trial: Trial, concern: Concern, excerpt: str, prompt: str, chan
 
 def _write_judge_logs(view: Path, stdout: bytes | None, stderr: bytes | None) -> None:
     try:
-        (view / "stdout.log").write_bytes(stdout or b"")
-        (view / "stderr.log").write_bytes(stderr or b"")
+        for name, data in (("stdout.log", stdout), ("stderr.log", stderr)):
+            path = view / name
+            if data is not None or not path.exists():
+                path.write_bytes(data or b"")
     except OSError:
         pass

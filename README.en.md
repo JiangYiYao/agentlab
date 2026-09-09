@@ -51,11 +51,15 @@ Experiments are saved under `~/.agentlab/experiments/` by default. You can choos
 | Content | Location within the experiment |
 |---|---|
 | Results, scores, and timing by version | `report.md` |
-| Experiment settings and evaluation criteria | `experiment.yaml`, `criteria.md` |
+| Settings and criteria used in that run | `runs/<run_id>/manifest.json`, `runs/<run_id>/criteria.md` |
 | Outputs, logs, and scoring evidence for each trial | `runs/<run_id>/trials/` |
+| Prompts, raw responses, and score provenance | Each score's audit link in the report opens `runs/<run_id>/audit.html` |
+| Investigating a case that performed worse | Each execution link opens `runs/<run_id>/execution.html` |
 | File changes from coding tasks | `runs/<run_id>/diff.html` |
 
 Records stay on your machine. Whether execution contacts external services depends on the commands and review models you choose.
+
+If a score looks wrong, follow its audit link to inspect the task, criteria, supplied material, raw response, and parsed result. The page also compares the previous assessment, making prompt and scoring changes easier to spot. These records show what was provided; they do not prove that the model read every file.
 
 ## Continue without starting over
 
@@ -78,6 +82,9 @@ The detailed guides are currently in Chinese:
 - [Experiment configuration](skills/agentlab/references/contract.md): cases, commands, scoring, and budgets.
 - [Coding tasks](skills/agentlab/references/coding.md): testing changes in real Git repositories.
 - [Execution and re-evaluation](skills/agentlab/references/lifecycle.md): reuse, evidence retention, retries, and compatibility.
+- [Storage and cleanup](skills/agentlab/references/storage.md): shared archives, disk usage, cache cleanup, and older experiments.
+- [Auditing scores](skills/agentlab/references/audit.md): judge inputs, score provenance, and assessment comparisons.
+- [Investigating execution](skills/agentlab/references/execution-audit.md): pre-launch inputs, exported traces, baseline comparisons, and limits on causal conclusions.
 - [Skill instructions](skills/agentlab/SKILL.md): the complete workflow followed by the agent.
 
 ## Local development
@@ -91,6 +98,6 @@ pip install -e ".[dev]"
 pytest -q
 ```
 
-After installing for development, run `agentlab --help` to explore the CLI. Main commands include `brief` (validate an experiment), `run` (execute), `rescore` (re-evaluate), `report` (generate a report), `status` (show progress), and `cleanup` (remove experiment workspaces).
+After installing for development, run `agentlab --help` to explore the CLI. Main commands include `brief` (validate an experiment), `run` (execute), `rescore` (re-evaluate), `report` (generate a report), `status` (show progress), `storage` (show disk usage), and `cleanup` (remove workspaces and archived caches).
 
 Licensed under [MIT](LICENSE).

@@ -10,6 +10,9 @@ from agentlab.runs import latest_run_id, planned_ids_for_run, runs_dir, load_man
 from agentlab.scheduler import load_current_records
 from agentlab.schema import Experiment
 from agentlab.stats import concern_stats, paired_deltas
+from agentlab.audit import relative_url, score_anchor, write_audit
+from agentlab.execution_audit import trial_anchor
+from agentlab.execution_report import write_execution_audit
 
 
 def render_report(
@@ -18,6 +21,7 @@ def render_report(
     *,
     run_id: str | None = None,
     trial_ids: list[str] | None = None,
+    report_path: Path | None = None,
 ) -> str:
     ident = run_id or latest_run_id(root)
     manifest = load_manifest(root, ident) if ident else None
@@ -58,6 +62,11 @@ def render_report(
             lines.append(f"- {key}: {len(manifest.get(key) or [])}")
     if ident and (runs_dir(root) / ident / "diff.html").is_file():
         lines.append(f"- 代码改动阅读: `runs/{ident}/diff.html`（用浏览器打开）")
+    audit_url = relative_url(runs_dir(root) / ident / "audit.html", report_path or root / "report.md") if ident else None
+    if audit_url:
+        lines.append(f"- [评分审计]({audit_url})：查看任务、裁判输入、原始回复和评分来源（用浏览器打开）。")
+        execution_url = relative_url(runs_dir(root) / ident / "execution.html", report_path or root / "report.md")
+        lines.append(f"- [执行排查]({execution_url})：比较同一 case 的输入、执行轨迹及产物。")
     lines.extend(
         [
             "",
@@ -117,6 +126,8 @@ def render_report(
             by.setdefault(key, []).append(
                 f"`{rec.variant_id}` / `{rec.cell_id}` / `{rec.case_id}` / r{rec.repeat}: "
                 f"value={score.value} pass={score.pass_} unknown={score.unknown}"
+                + (f" · [审计]({audit_url}#{score_anchor(rec.trial_id, cid)})" if audit_url else "")
+                + (f" · [排查执行]({execution_url}#{trial_anchor(rec.trial_id)})" if audit_url else "")
             )
     for (cid, cell, case), rows in sorted(by.items()):
         lines.append(f"### {cid} @ {cell} / {case}")
@@ -158,11 +169,14 @@ def write_report(
     planned = trial_ids if trial_ids is not None else planned_ids_for_run(root, ident)
     if ident and planned:
         write_run_diff(root, ident, planned)
-    text = render_report(exp, root, run_id=ident, trial_ids=trial_ids)
     path = dest or (root / "report.md")
+    text = render_report(exp, root, run_id=ident, trial_ids=trial_ids, report_path=path)
     path.write_text(text, encoding="utf-8")
     if ident and dest is None:
         run_report = runs_dir(root) / ident / "report.md"
         run_report.parent.mkdir(parents=True, exist_ok=True)
-        run_report.write_text(text, encoding="utf-8")
+        run_report.write_text(render_report(exp, root, run_id=ident, trial_ids=trial_ids, report_path=run_report), encoding="utf-8")
+    if ident:
+        write_execution_audit(root, ident)
+        write_audit(root, ident)
     return path

@@ -5,7 +5,7 @@ import shutil
 from pathlib import Path
 
 from agentlab.gate import evaluate_promotion
-from agentlab.runs import latest_run_id, planned_ids_for_run, load_manifest
+from agentlab.runs import latest_run_id, planned_ids_for_run, load_manifest, with_run_repetitions
 from agentlab.errors import ContractError
 from agentlab.scheduler import load_current_records
 from agentlab.schema import Experiment
@@ -22,6 +22,7 @@ def promote(
     if only_variant not in {v.id for v in exp.variants if v.role == "treatment"}:
         raise ContractError("unknown_field", f"unknown treatment: {only_variant}")
     manifest = load_manifest(root, latest_run_id(root)) if latest_run_id(root) else None
+    exp = with_run_repetitions(exp, manifest)
     records, stale = load_current_records(
         exp, root, trial_ids=planned_ids_for_run(root), run_id=latest_run_id(root)
     )

@@ -17,6 +17,7 @@ def fail_closed_for_gates(trial: Trial, exp: Experiment, *, reason: str) -> list
     out: list[Score] = []
     for concern in exp.concerns:
         if concern.role == "gate":
+            trial.record_evaluation(concern.id, concern.measure.type, "not_run", reason=reason)
             out.append(
                 Score(
                     concern_id=concern.id,
@@ -27,6 +28,7 @@ def fail_closed_for_gates(trial: Trial, exp: Experiment, *, reason: str) -> list
                 )
             )
     for gid in SYSTEM_GATES:
+        trial.record_evaluation(gid, "system", "not_run", reason=reason)
         out.append(Score(concern_id=gid, unknown=True, pass_=False, value=None, evidence={"killed_reason": reason}))
     return out
 
@@ -46,25 +48,30 @@ def score_concerns(
         basis = measurement_basis(exp, trial, concern)
         cached = trial.cached_scores.get(concern.id)
         if not (trial.force_score and (concern.measure.type == "llm_rubric" or (cached is not None and cached.unknown))) and cached is not None and trial.measurement_basis.get(concern.id) == basis:
+            trial.record_evaluation(concern.id, concern.measure.type, "reused")
             out.append(cached)
             continue
         trial.measurement_basis[concern.id] = basis
         t = concern.measure.type
         needs_workspace = t in {"gold_tree", "must_list", "workspace_diff"} or (t == "script" and concern.measure.cwd == "sandbox")
         if trial.reused and needs_workspace and trial.sandbox is None:
+            trial.record_evaluation(concern.id, t, "not_run", reason="complete workspace evidence unavailable")
             out.append(Score(concern_id=concern.id, unknown=True, pass_=False,
                              evidence={"error": "complete workspace evidence unavailable; run with evidence.workspace: true to support this evaluator"}))
             continue
         if t == "llm_rubric":
             if judge_mode(exp) == "compare_case":
                 continue
+            trial.record_evaluation(concern.id, t, "evaluated")
             timeout = (concern.measure.timeout_s or (concern.judge.timeout_s if concern.judge else None) or (exp.judge.timeout_s if exp.judge else 180))
             out.append(spawn_judge(trial, concern, exp, int(timeout)))
         elif t == "script":
+            trial.record_evaluation(concern.id, t, "evaluated")
             timeout = concern.measure.timeout_s or 120
             if trial.budget_tracker and exp.budget.wall_clock_s is not None:
                 timeout = min(timeout, max(0.01, trial.budget_tracker.started + exp.budget.wall_clock_s - time.time()))
             out.append(run_script_measure(trial, concern, exp, ctx, env, timeout))
         else:
+            trial.record_evaluation(concern.id, t, "evaluated")
             out.append(builtin_evaluate(trial, concern, exp, ctx))
     return out

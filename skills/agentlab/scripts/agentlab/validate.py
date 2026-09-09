@@ -268,7 +268,7 @@ def validate_experiment(exp: Experiment, root: Path, *, check_criteria_hash: boo
             for spec in (m.keep, m.gone):
                 if spec and "${" not in spec and not (root / spec).is_file():
                     raise ContractError("missing_evaluator_input", f"required list missing: {spec}", path=concern.id)
-        unused = {"variant_path", "higher_is_better", "model", "compare_root", "judge", "expected"} & m.model_fields_set
+        unused = {"variant_path", "model", "compare_root", "judge", "expected"} & m.model_fields_set
         if unused:
             raise ContractError("unknown_field", f"unsupported measure fields: {sorted(unused)}", path=concern.id)
         if m.judge:

@@ -13,6 +13,7 @@ from agentlab.models import RunnerResult, Trial, Usage
 from agentlab.recipes import bound_command
 from agentlab.schema import Experiment
 from agentlab.templates import expand_templates, resolve_argv
+from agentlab.provenance import atomic_json
 
 
 class ShellRunner:
@@ -63,6 +64,10 @@ class ShellRunner:
         started = time.time()
         error_code = None
         killed = None
+        invocation = {'command': final_argv, 'cwd': str(cwd), 'prompt_mode': prompt_mode,
+                      'started_at': started, 'requested_model': trial.cell.model,
+                      'verification': 'Command request only; external CLI context and actual model are not verified.'}
+        atomic_json(out / 'runner' / 'execution.json', {**invocation, 'phase': 'starting'})
         try:
             with ExitStack() as stack, stdout_path.open("wb") as so, stderr_path.open("wb") as se:
                 self._proc = subprocess.Popen(
@@ -129,6 +134,12 @@ class ShellRunner:
             if self._proc is not None:
                 _stop(self._proc)
             raise
+        finally:
+            atomic_json(out / 'runner' / 'execution.json', {
+                **invocation, 'phase': 'finished', 'wall_clock_s': time.time() - started,
+                'exit_code': self._proc.returncode if self._proc is not None else None,
+                'error_code': error_code, 'killed_reason': killed,
+            })
         wall = time.time() - started
         code = self._proc.returncode if self._proc is not None else 127
         if code is None:

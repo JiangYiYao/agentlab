@@ -101,6 +101,18 @@ class Trial:
     cached_scores: dict[str, Score] = field(default_factory=dict)
     force_score: bool = False
     compare_basis: str | None = None
+    run_id: str | None = None
+    evaluation_events: dict[str, dict[str, Any]] = field(default_factory=dict)
+    previous_evaluations: dict[str, dict[str, Any]] = field(default_factory=dict)
+
+    def record_evaluation(self, concern_id: str, kind: str, status: str, *, reason: str | None = None) -> None:
+        previous = self.previous_evaluations.get(concern_id, {})
+        self.evaluation_events[concern_id] = {
+            "kind": kind, "status": status,
+            "source_run": (previous.get("source_run") or self.reused_from) if status == "reused" else self.run_id,
+            "source_verified": bool(previous.get("source_verified")) if status == "reused" else True,
+            "reason": reason,
+        }
 
     def trial_dir(self) -> Path:
         return self.experiment_root / "trials" / self.id
